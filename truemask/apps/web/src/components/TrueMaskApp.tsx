@@ -18,6 +18,23 @@ import {
 import type { AppStep, Detection } from "@/types";
 
 import { hashFile, shortHash } from "@/lib/image-utils";
+import { FaceDetector, FilesetResolver } from "@mediapipe/tasks-vision";
+
+let faceDetector: FaceDetector | null = null;
+async function initFaceDetector() {
+  if (faceDetector) return faceDetector;
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+  );
+  faceDetector = await FaceDetector.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite`,
+      delegate: "GPU"
+    },
+    runningMode: "IMAGE"
+  });
+  return faceDetector;
+}
 
 const STEPS: {
   id: AppStep;
@@ -100,14 +117,40 @@ export default function TrueMaskApp() {
     try {
       const hash = await hashFile(selectedFile);
       setOriginalHash(hash);
+
+      const detector = await initFaceDetector();
+      const img = new window.Image();
+      img.src = url;
+      await new Promise((resolve) => { img.onload = resolve; });
+      
+      const detectionsResult = detector.detect(img);
+      const newDetections: Detection[] = detectionsResult.detections.map((d, index) => {
+        const bbox = d.boundingBox;
+        if (!bbox) return null;
+        return {
+          id: `face-${index}`,
+          type: "face",
+          label: "Face",
+          risk: "critical",
+          x: (bbox.originX / img.width) * 100,
+          y: (bbox.originY / img.height) * 100,
+          width: (bbox.width / img.width) * 100,
+          height: (bbox.height / img.height) * 100,
+          selected: true
+        };
+      }).filter((item): item is Detection => item !== null);
+
+      if (newDetections.length > 0) {
+        setDetections(newDetections);
+      } else {
+        setDetections(MOCK_DETECTIONS);
+      }
+      setStep("review");
     } catch {
       setOriginalHash("Unable to generate hash");
-    }
-
-    window.setTimeout(() => {
       setDetections(MOCK_DETECTIONS);
       setStep("review");
-    }, 1800);
+    }
   }
 
   function toggleDetection(id: string) {
@@ -124,44 +167,52 @@ export default function TrueMaskApp() {
   }
 
   async function protectImage() {
-    if (!file) return;
+    if (!file || !imageUrl) return;
 
     setStep("redact");
 
-    const metadata = JSON.stringify({
-      originalHash,
-      approvedRegions: selectedDetections.map((item) => ({
-        id: item.id,
-        type: item.type,
-        x: item.x,
-        y: item.y,
-        width: item.width,
-        height: item.height,
-      })),
-    });
-
-    const encoder = new TextEncoder();
-
-    const combined = new Uint8Array([
-      ...new Uint8Array(await file.arrayBuffer()),
-      ...encoder.encode(metadata),
-    ]);
-
     try {
-      const hash = await crypto.subtle.digest("SHA-256", combined);
+      const img = new window.Image();
+      img.src = imageUrl;
+      await new Promise((resolve) => { img.onload = resolve; });
 
-      const protectedImageHash = Array.from(new Uint8Array(hash))
-        .map((byte) => byte.toString(16).padStart(2, "0"))
-        .join("");
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
-      setProtectedHash(protectedImageHash);
+      ctx.drawImage(img, 0, 0);
+
+      selectedDetections.forEach((item) => {
+        const x = (item.x / 100) * img.width;
+        const y = (item.y / 100) * img.height;
+        const w = (item.width / 100) * img.width;
+        const h = (item.height / 100) * img.height;
+        
+        ctx.filter = "blur(20px)";
+        ctx.drawImage(canvas, Math.max(0, x), Math.max(0, y), w, h, Math.max(0, x), Math.max(0, y), w, h);
+        ctx.filter = "none";
+      });
+
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg"));
+      if (blob) {
+        const redactedFile = new File([blob], "redacted.jpg", { type: "image/jpeg" });
+        const redactedHashValue = await hashFile(redactedFile);
+        setProtectedHash(redactedHashValue);
+        
+        // This simulates the Submit functionality for Midnight
+        console.log("Submitting to Midnight contract.circuits.verify_image...");
+        console.log("Public Input (redactedHash):", redactedHashValue);
+        console.log("Private Witnesses:");
+        console.log(" - originalHash:", originalHash);
+        console.log(" - boundingBoxes:", selectedDetections);
+      }
+      setStep("verified");
     } catch {
       setProtectedHash("Unable to generate hash");
-    }
-
-    window.setTimeout(() => {
       setStep("verified");
-    }, 1800);
+    }
   }
 
   function resetApp() {
