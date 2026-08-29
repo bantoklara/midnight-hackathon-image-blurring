@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "file": "index.js",
+  "sourceRoot": "../../../",
+  "sources": ["truemask.compact"],
+  "names": [],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;EAAA;;;;;;;;;;;;;;;;MAuCA,AAAA,YAcC;;;;;cAd2B,eAAwB;;;;;;;;;;;;;;;;;;yCAAxB,eAAwB;;;;;;;;;8CAAxB,eAAwB;;;OAcnD;;;;GACA;EAtDD;;;;;;;;;;;;;;;;;;;;;;;;;;;;;IAcA;;;;;;;;;;yEAAuD;;;;;;;GAwCtD;EA7BD,AAAA,0BAA6C;;0DAA7C,uBAA6C;;;;;;;;;;;;;;GAAA;EAC7C,AAAA,sBAAuD;;0DAAvD,mBAAuD;;;;;;;;;;;;;;GAAA;EAKvD,AAAA,mBAIC,CAJ6B,eAAwB,EAAE,eAAwB,EAAE,OAA8B;;GAI/G;EAID,AAAA,eAcC,4BAd2B,eAAwB;UAE5C,eAAyC;;UACzC,OAA6B;UAM7B,UAAgE,4BAApC,eAAa;gDAAE,eAAa;gDAAE,OAAK;4BAC9D,UAAQ;;IAGf;;;;;;;;;;2HAAgC,eAAa;;;;;;wEAA9B;;GAChB;;;;;;;;;;;;;;;;IAvCD;;;;;uCAAA;;;;;;;;;;;;;;;;4GAAuD;;;;;;uCAAvD;;;;;;;;;;;;4GAAuD;;;;;;;;;;;;;;uCAAvD;;;;;;;;;;;;;;;4GAAuD;;;;;;;;;;;;;;uCAAvD;;;;;;;;;;;;;;;;;4GAAuD;;;;;;;;;KAAA;;;;;;;;;;;;;"
+}

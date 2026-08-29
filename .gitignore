@@ -1,0 +1,18 @@
+# Node.js
+node_modules/
+dist/
+npm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+*.log
+
+# Local env overrides
+*.local
+**/.env.local
+
+# NOTE: contract/managed/ is INTENTIONALLY COMMITTED.
+# It holds the compiled circuit + proving keys, letting a fresh clone build
+# without installing the Compact toolchain. Do not gitignore it.
