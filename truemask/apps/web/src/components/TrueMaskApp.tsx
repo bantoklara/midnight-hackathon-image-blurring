@@ -83,8 +83,12 @@ const MOCK_DETECTIONS: Detection[] = [
   },
 ];
 
+import { useMidnight } from "@/hooks/useMidnight";
+
 export default function TrueMaskApp() {
   const inputRef = useRef<HTMLInputElement>(null);
+  
+  const { address, isConnecting, connect, provider } = useMidnight();
 
   const [step, setStep] = useState<AppStep>("upload");
   const [file, setFile] = useState<File | null>(null);
@@ -201,12 +205,46 @@ export default function TrueMaskApp() {
         const redactedHashValue = await hashFile(redactedFile);
         setProtectedHash(redactedHashValue);
         
-        // This simulates the Submit functionality for Midnight
-        console.log("Submitting to Midnight contract.circuits.verify_image...");
-        console.log("Public Input (redactedHash):", redactedHashValue);
-        console.log("Private Witnesses:");
-        console.log(" - originalHash:", originalHash);
-        console.log(" - boundingBoxes:", selectedDetections);
+        if (provider) {
+          try {
+            console.log("Building Midnight transaction for verify_image...");
+            
+            /* 
+             * ACTUAL MIDNIGHT SUBMISSION ARCHITECTURE
+             * 
+             * NOTE: To make this run, the ImageVerification.compact contract MUST be compiled
+             * using the Midnight compiler to generate the TypeScript bindings, and deployed.
+             * 
+             * import { callContract } from "@midnight-ntwrk/midnight-js-contracts";
+             * import { ImageVerificationContract } from "../../contracts/managed/image_verification";
+             * 
+             * // 1. Map our local state to the witness callbacks
+             * const createWitnesses = (originalHashStr: string, boxes: Detection[]) => ({
+             *   get_original_image_hash: () => new TextEncoder().encode(originalHashStr),
+             *   get_redaction_boxes: () => boxes.map(b => ({
+             *     x: BigInt(Math.floor(b.x)),
+             *     y: BigInt(Math.floor(b.y)),
+             *     width: BigInt(Math.floor(b.width)),
+             *     height: BigInt(Math.floor(b.height))
+             *   }))
+             * });
+             * 
+             * // 2. Call the circuit
+             * const result = await callContract({
+             *   contractAddress: "YOUR_DEPLOYED_CONTRACT_ADDRESS",
+             *   circuitName: "verify_image",
+             *   args: [new TextEncoder().encode(redactedHashValue)], // Public input
+             *   privateState: createWitnesses(originalHash, selectedDetections),
+             *   providers: provider
+             * });
+             * console.log("Transaction success!", result);
+             */
+          } catch (err) {
+            console.error("Contract call failed:", err);
+          }
+        } else {
+          console.warn("Wallet not connected. Skipping Midnight submission.");
+        }
       }
       setStep("verified");
     } catch {
@@ -242,14 +280,29 @@ export default function TrueMaskApp() {
           </div>
         </button>
 
-        {step !== "upload" && (
-          <button
-            onClick={resetApp}
-            className="rounded-lg border border-white/10 px-4 py-2 text-sm text-white/70 transition hover:bg-white/5"
-          >
-            New image
-          </button>
-        )}
+        <div className="flex items-center gap-4">
+          {address ? (
+            <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-2 text-sm text-green-400">
+              Connected: {address.slice(0, 8)}...
+            </div>
+          ) : (
+            <button
+              onClick={connect}
+              disabled={isConnecting}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-50"
+            >
+              {isConnecting ? "Connecting..." : "Connect Lace Wallet"}
+            </button>
+          )}
+          {step !== "upload" && (
+            <button
+              onClick={resetApp}
+              className="rounded-lg border border-white/10 px-4 py-2 text-sm text-white/70 transition hover:bg-white/5"
+            >
+              New image
+            </button>
+          )}
+        </div>
       </header>
 
       <section className="mx-auto mt-10 max-w-4xl">
