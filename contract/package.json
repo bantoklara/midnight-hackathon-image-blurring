@@ -1,0 +1,28 @@
+{
+  "name": "leaderboard-contract",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "compact": "compact compile leaderboard.compact managed/leaderboard",
+    "compact:truemask": "compact compile +0.31.1 truemask.compact managed/truemask",
+    "build": "shx rm -rf dist && tsc --project tsconfig.build.json && shx cp -Rf ./managed ./dist/managed",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-js": "2.5.1",
+    "@midnight-ntwrk/compact-runtime": "0.16.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  }
+}

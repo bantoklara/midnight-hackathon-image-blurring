@@ -1,0 +1,97 @@
+{
+  "compiler-version": "0.31.1",
+  "language-version": "0.23.0",
+  "runtime-version": "0.16.0",
+  "circuits": [
+    {
+      "name": "verify_image",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "redacted_hash",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    }
+  ],
+  "witnesses": [
+    {
+      "name": "get_original_image_hash",
+      "arguments": [
+      ],
+      "result type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "get_redaction_boxes",
+      "arguments": [
+      ],
+      "result type": {
+        "type-name": "Vector",
+        "length": 16,
+        "type": {
+          "type-name": "Struct",
+          "name": "BoundingBox",
+          "elements": [
+            {
+              "name": "x",
+              "type": {
+                "type-name": "Uint",
+                "maxval": 4294967295
+              }
+            },
+            {
+              "name": "y",
+              "type": {
+                "type-name": "Uint",
+                "maxval": 4294967295
+              }
+            },
+            {
+              "name": "width",
+              "type": {
+                "type-name": "Uint",
+                "maxval": 4294967295
+              }
+            },
+            {
+              "name": "height",
+              "type": {
+                "type-name": "Uint",
+                "maxval": 4294967295
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "contracts": [
+  ],
+  "ledger": [
+    {
+      "name": "verified_images",
+      "index": 0,
+      "exported": true,
+      "storage": "Map",
+      "key": {
+        "type-name": "Bytes",
+        "length": 32
+      },
+      "value": {
+        "type-name": "Boolean"
+      }
+    }
+  ]
+}
