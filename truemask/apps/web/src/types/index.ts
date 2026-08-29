@@ -1,5 +1,11 @@
-export type AppStep = "upload" | "scan" | "review" | "redact" | "verified";
-
+export type AppStep =
+  | "upload"
+  | "scan"
+  | "review"
+  | "redact"
+  | "compare"
+  | "verified";
+  
 export type DetectionType = "face" | "license_plate" | "text";
 
 export interface Detection {

@@ -1,5 +1,6 @@
 "use client";
 
+import ImageComparison from "@/components/ImageComparison";
 import { useMemo, useRef, useState } from "react";
 import {
   Check,
@@ -27,6 +28,7 @@ const STEPS: {
   { id: "scan", label: "Scan" },
   { id: "review", label: "Review" },
   { id: "redact", label: "Protect" },
+  { id: "compare", label: "Compare" },
   { id: "verified", label: "Verify" },
 ];
 
@@ -160,7 +162,7 @@ export default function TrueMaskApp() {
     }
 
     window.setTimeout(() => {
-      setStep("verified");
+      setStep("compare");
     }, 1800);
   }
 
@@ -262,6 +264,14 @@ export default function TrueMaskApp() {
           <ProtectingScreen
             imageUrl={imageUrl}
             count={selectedDetections.length}
+          />
+        )}
+
+        {step === "compare" && imageUrl && (
+          <ImageComparison
+            imageUrl={imageUrl}
+            detections={selectedDetections}
+            onContinue={() => setStep("verified")}
           />
         )}
 
