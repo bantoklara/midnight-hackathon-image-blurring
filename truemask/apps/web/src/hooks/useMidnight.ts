@@ -308,7 +308,7 @@ export async function lookupRecordOnChain(
     const state = await firstValueFrom(
       publicDataProvider.contractStateObservable(contractAddress as never, { type: "latest" }),
     );
-    const { TrueMask } = await import("leaderboard-contract");
+    const { TrueMask } = await import("truemask-contract");
     const key = hexToBytes(redactedImageHashHex);
     return TrueMask.ledger(state.data).records.member(key) ? "found" : "absent";
   } catch (err) {
