@@ -4,7 +4,76 @@
   "runtime-version": "0.16.0",
   "circuits": [
     {
-      "name": "verify_image",
+      "name": "compute_preserved_root",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "lanes",
+          "type": {
+            "type-name": "Vector",
+            "length": 16,
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "submit_redaction",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "redacted_hash",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        },
+        {
+          "name": "authorization_commitment",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        },
+        {
+          "name": "cols",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 4294967295
+          }
+        },
+        {
+          "name": "rows",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 4294967295
+          }
+        },
+        {
+          "name": "block_size",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 4294967295
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "verify_integrity",
       "pure": false,
       "proof": true,
       "arguments": [
@@ -25,54 +94,28 @@
   ],
   "witnesses": [
     {
-      "name": "get_original_image_hash",
-      "arguments": [
-      ],
-      "result type": {
-        "type-name": "Bytes",
-        "length": 32
-      }
-    },
-    {
-      "name": "get_redaction_boxes",
+      "name": "get_published_lane_digests",
       "arguments": [
       ],
       "result type": {
         "type-name": "Vector",
         "length": 16,
         "type": {
-          "type-name": "Struct",
-          "name": "BoundingBox",
-          "elements": [
-            {
-              "name": "x",
-              "type": {
-                "type-name": "Uint",
-                "maxval": 4294967295
-              }
-            },
-            {
-              "name": "y",
-              "type": {
-                "type-name": "Uint",
-                "maxval": 4294967295
-              }
-            },
-            {
-              "name": "width",
-              "type": {
-                "type-name": "Uint",
-                "maxval": 4294967295
-              }
-            },
-            {
-              "name": "height",
-              "type": {
-                "type-name": "Uint",
-                "maxval": 4294967295
-              }
-            }
-          ]
+          "type-name": "Bytes",
+          "length": 32
+        }
+      }
+    },
+    {
+      "name": "get_original_lane_digests",
+      "arguments": [
+      ],
+      "result type": {
+        "type-name": "Vector",
+        "length": 16,
+        "type": {
+          "type-name": "Bytes",
+          "length": 32
         }
       }
     }
@@ -81,7 +124,7 @@
   ],
   "ledger": [
     {
-      "name": "verified_images",
+      "name": "records",
       "index": 0,
       "exported": true,
       "storage": "Map",
@@ -90,7 +133,51 @@
         "length": 32
       },
       "value": {
-        "type-name": "Boolean"
+        "type-name": "Struct",
+        "name": "RedactionRecord",
+        "elements": [
+          {
+            "name": "preserved_root",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "authorization_commitment",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "cols",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 4294967295
+            }
+          },
+          {
+            "name": "rows",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 4294967295
+            }
+          },
+          {
+            "name": "block_size",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 4294967295
+            }
+          },
+          {
+            "name": "verified",
+            "type": {
+              "type-name": "Boolean"
+            }
+          }
+        ]
       }
     }
   ]

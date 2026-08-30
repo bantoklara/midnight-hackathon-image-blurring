@@ -5,7 +5,7 @@
 
 import { type MidnightProviders } from '@midnight-ntwrk/midnight-js-types';
 import { type FoundContract } from '@midnight-ntwrk/midnight-js-contracts';
-import { type LeaderboardPrivateState } from '../../contract/src/index';
+import { type LeaderboardPrivateState } from 'leaderboard-contract';
 
 export const leaderboardPrivateStateKey = 'leaderboardPrivateState';
 export type PrivateStateId = typeof leaderboardPrivateStateKey;

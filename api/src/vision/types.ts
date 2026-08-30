@@ -6,6 +6,21 @@
  * inputs must change too — coordinate with whoever owns contract/.
  */
 
+/**
+ * A raw RGBA image buffer.
+ *
+ * Structurally compatible with the browser's `ImageData`, so a real `ImageData`
+ * can be passed anywhere this is expected. Declared structurally rather than as
+ * `ImageData` because `api/` builds without the DOM lib (it is a Node target),
+ * and because the pipeline must stay runnable from a Node test with no canvas.
+ */
+export interface RgbaImage {
+  /** RGBA bytes, row-major, 4 bytes per pixel. Length must be width * height * 4. */
+  readonly data: Uint8ClampedArray;
+  readonly width: number;
+  readonly height: number;
+}
+
 /** Axis-aligned rectangle in pixel coordinates, origin at the top-left of the image. */
 export interface BoundingBox {
   x: number;
@@ -53,12 +68,29 @@ export interface RedactionPlan {
   authorizedBlocks: number[];
   /** Bit i set means block i was authorized to change. Length = ceil(blockCount / 8). */
   authorizationBitmap: Uint8Array;
-  /** Merkle-style root over the blocks NOT in authorizedBlocks. This is what goes on-chain. */
+  /**
+   * Hash of `authorizationBitmap` bound to the grid dimensions. This 32-byte value
+   * is what goes on-chain — the bitmap itself does not fit (a Bytes<32> holds 256
+   * bits, i.e. a 256x256 image at blockSize 16), so it is published beside the image.
+   */
+  authorizationCommitment: Uint8Array;
+  /**
+   * The LANE_COUNT lane digests the root is folded from. Handed to the circuit as
+   * a witness; kept here so callers do not have to re-derive them.
+   */
+  laneDigests: Uint8Array[];
+  /** Root over the blocks NOT in authorizedBlocks. This is what `submit_redaction` stores. */
   preservedRoot: Uint8Array;
 }
 
 /** Final output handed to the UI: the redacted image plus everything the circuit needs. */
 export interface RedactionResult {
-  redactedImage: ImageData;
+  redactedImage: RgbaImage;
   plan: RedactionPlan;
+  /**
+   * Lane digests over the ORIGINAL image's preserved blocks. Equal to
+   * `plan.laneDigests` for an honest redaction — `submit_redaction` asserts exactly
+   * that. Kept separate because the circuit takes them as a distinct witness.
+   */
+  originalLaneDigests: Uint8Array[];
 }
