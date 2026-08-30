@@ -62,12 +62,20 @@ export ledger records: Map<Bytes<32>, RedactionRecord>;
  * Lane digests over the preserved blocks of the PUBLISHED image.
  * Computed locally by the vision pipeline; never revealed except via the root.
  */
+// PRIVATE. Computed on the journalist's machine from the published image.
+// Enters the circuit as a witness, so the network never sees the lane digests
+// themselves — only the single root they fold into, and only because
+// submit_redaction explicitly discloses that root.
 witness get_published_lane_digests(): Vector<16, Bytes<32>>;
 
 /**
  * Lane digests over the same preserved blocks of the ORIGINAL image.
  * This is the half that stays private — it is only ever compared, never stored.
  */
+// PRIVATE, AND NEVER DISCLOSED. Derived from the ORIGINAL image, which never
+// leaves the journalist's machine. It is only ever compared against the
+// published root inside the circuit; no circuit writes it, returns it, or
+// discloses it, so nothing about the unredacted image reaches the ledger.
 witness get_original_lane_digests(): Vector<16, Bytes<32>>;
 
 /**
@@ -76,6 +84,13 @@ witness get_original_lane_digests(): Vector<16, Bytes<32>>;
  * Pure, so it is exported to TypeScript as `pureCircuits.compute_preserved_root`
  * and is the ONE definition of the root shared by prover and verifier.
  */
+// PROTOCOL-CRITICAL. Changing this hash construction invalidates every record
+// already on the ledger, and does so silently: verification simply starts
+// returning false. api/src/vision/hashing.ts mirrors it and is pinned to it by
+// the "hash agreement" test.
+//
+// Pure, so no proving key is generated and TypeScript can call it directly.
+// DISCLOSES NOTHING by itself — it is a function of its argument.
 export circuit compute_preserved_root(lanes: Vector<16, Bytes<32>>): Bytes<32> {
   return persistentHash<Vector<16, Bytes<32>>>(lanes);
 }
@@ -87,6 +102,19 @@ export circuit compute_preserved_root(lanes: Vector<16, Bytes<32>>): Bytes<32> {
  * as the preserved blocks of the original — i.e. the journalist changed nothing
  * outside the regions they declared.
  */
+// PRIVACY LEDGER FOR THIS CIRCUIT
+//   private, never disclosed : get_original_lane_digests() — the original image
+//   private, never disclosed : get_published_lane_digests() — only its fold escapes
+//   disclosed on purpose     : published_root, which is derivable by anyone who
+//                              already holds the published image and bitmap, so
+//                              publishing it reveals nothing new
+//   disclosed on purpose     : redacted_hash, authorization_commitment, cols,
+//                              rows, block_size — all public inputs supplied by
+//                              the caller and all required for a third party to
+//                              re-run the check
+// The equality assert is what carries the claim: it fails unless the prover
+// holds an original whose non-redacted blocks hash identically to the published
+// ones. The original itself is never revealed.
 export circuit submit_redaction(
   redacted_hash: Bytes<32>,
   authorization_commitment: Bytes<32>,
@@ -117,6 +145,12 @@ export circuit submit_redaction(
  * the preserved blocks into lanes, and calls this. If a single byte of any
  * non-redacted block changed since submission, the roots diverge and this fails.
  */
+// PRIVACY LEDGER FOR THIS CIRCUIT
+//   private : get_published_lane_digests() — the verifier's own copy of the image
+//   disclosed : redacted_hash only, to look the record up
+// Nothing new is written except the `verified` flag; the stored root is copied
+// forward unchanged. A verifier therefore proves they hold a matching image
+// without publishing the image or anything derived from it beyond the lookup key.
 export circuit verify_integrity(redacted_hash: Bytes<32>): [] {
   assert(records.member(disclose(redacted_hash)), "image not registered");
   const record = records.lookup(disclose(redacted_hash));

@@ -104,42 +104,42 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('submit_redaction',
                                      'argument 1 (as invoked from Typescript)',
-                                     'truemask.compact line 90 char 1',
+                                     'truemask.compact line 118 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(redacted_hash_0.buffer instanceof ArrayBuffer && redacted_hash_0.BYTES_PER_ELEMENT === 1 && redacted_hash_0.length === 32)) {
           __compactRuntime.typeError('submit_redaction',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'truemask.compact line 90 char 1',
+                                     'truemask.compact line 118 char 1',
                                      'Bytes<32>',
                                      redacted_hash_0)
         }
         if (!(authorization_commitment_0.buffer instanceof ArrayBuffer && authorization_commitment_0.BYTES_PER_ELEMENT === 1 && authorization_commitment_0.length === 32)) {
           __compactRuntime.typeError('submit_redaction',
                                      'argument 2 (argument 3 as invoked from Typescript)',
-                                     'truemask.compact line 90 char 1',
+                                     'truemask.compact line 118 char 1',
                                      'Bytes<32>',
                                      authorization_commitment_0)
         }
         if (!(typeof(cols_0) === 'bigint' && cols_0 >= 0n && cols_0 <= 4294967295n)) {
           __compactRuntime.typeError('submit_redaction',
                                      'argument 3 (argument 4 as invoked from Typescript)',
-                                     'truemask.compact line 90 char 1',
+                                     'truemask.compact line 118 char 1',
                                      'Uint<0..4294967296>',
                                      cols_0)
         }
         if (!(typeof(rows_0) === 'bigint' && rows_0 >= 0n && rows_0 <= 4294967295n)) {
           __compactRuntime.typeError('submit_redaction',
                                      'argument 4 (argument 5 as invoked from Typescript)',
-                                     'truemask.compact line 90 char 1',
+                                     'truemask.compact line 118 char 1',
                                      'Uint<0..4294967296>',
                                      rows_0)
         }
         if (!(typeof(block_size_0) === 'bigint' && block_size_0 >= 0n && block_size_0 <= 4294967295n)) {
           __compactRuntime.typeError('submit_redaction',
                                      'argument 5 (argument 6 as invoked from Typescript)',
-                                     'truemask.compact line 90 char 1',
+                                     'truemask.compact line 118 char 1',
                                      'Uint<0..4294967296>',
                                      block_size_0)
         }
@@ -172,14 +172,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('verify_integrity',
                                      'argument 1 (as invoked from Typescript)',
-                                     'truemask.compact line 120 char 1',
+                                     'truemask.compact line 154 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(redacted_hash_0.buffer instanceof ArrayBuffer && redacted_hash_0.BYTES_PER_ELEMENT === 1 && redacted_hash_0.length === 32)) {
           __compactRuntime.typeError('verify_integrity',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'truemask.compact line 120 char 1',
+                                     'truemask.compact line 154 char 1',
                                      'Bytes<32>',
                                      redacted_hash_0)
         }
@@ -268,7 +268,7 @@ export class Contract {
     if (!(Array.isArray(result_0) && result_0.length === 16 && result_0.every((t) => t.buffer instanceof ArrayBuffer && t.BYTES_PER_ELEMENT === 1 && t.length === 32))) {
       __compactRuntime.typeError('get_published_lane_digests',
                                  'return value',
-                                 'truemask.compact line 65 char 1',
+                                 'truemask.compact line 69 char 1',
                                  'Vector<16, Bytes<32>>',
                                  result_0)
     }
@@ -285,7 +285,7 @@ export class Contract {
     if (!(Array.isArray(result_0) && result_0.length === 16 && result_0.every((t) => t.buffer instanceof ArrayBuffer && t.BYTES_PER_ELEMENT === 1 && t.length === 32))) {
       __compactRuntime.typeError('get_original_lane_digests',
                                  'return value',
-                                 'truemask.compact line 71 char 1',
+                                 'truemask.compact line 79 char 1',
                                  'Vector<16, Bytes<32>>',
                                  result_0)
     }
@@ -568,7 +568,7 @@ export const pureCircuits = {
     if (!(Array.isArray(lanes_0) && lanes_0.length === 16 && lanes_0.every((t) => t.buffer instanceof ArrayBuffer && t.BYTES_PER_ELEMENT === 1 && t.length === 32))) {
       __compactRuntime.typeError('compute_preserved_root',
                                  'argument 1',
-                                 'truemask.compact line 79 char 1',
+                                 'truemask.compact line 94 char 1',
                                  'Vector<16, Bytes<32>>',
                                  lanes_0)
     }

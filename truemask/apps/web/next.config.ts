@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   // `contract` and `api` are sibling workspaces shipped as TypeScript-built ESM.
   // Next has to run them through its own pipeline rather than treating them as
   // pre-bundled externals.
-  transpilePackages: ["truemask-api", "leaderboard-contract"],
+  transpilePackages: ["truemask-api", "truemask-contract"],
 
   // Image optimization for better performance
   images: {
