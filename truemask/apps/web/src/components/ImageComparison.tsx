@@ -7,8 +7,8 @@ interface ImageComparisonProps {
   imageUrl: string;
   /**
    * Object URL of the real redacted PNG produced by the vision pipeline. This
-   * panel used to render `imageUrl` with a CSS blur on top, which showed the
-   * ORIGINAL pixels behind a filter — the opposite of what the app promises.
+   * panel used to render `imageUrl` with a soft CSS cover on top, which showed
+   * the ORIGINAL pixels behind a filter, the opposite of what the app promises.
    * Falls back to the original only if redaction has not finished yet.
    */
   redactedUrl: string | null;
