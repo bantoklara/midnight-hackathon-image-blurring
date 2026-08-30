@@ -174,7 +174,7 @@ truemask/apps/web/   Next.js 16 frontend
   src/hooks/useMidnight.ts   wallet connection + the six Midnight providers
   src/components/            the UI
 proof-server/        docker-compose for the proof server
-scripts/             e2e-truemask.mjs — full chain trace, no browser needed
+testing/             e2e-truemask.mjs + README explaining the whole test strategy
 _archive/            superseded files, kept for history, never built
 ```
 
@@ -225,9 +225,11 @@ npm run build        # contract -> dist, api -> dist
 ### 5. Test
 
 ```bash
-npm test             # 33 contract tests + 48 api tests
-npm run e2e          # full chain trace against the real compiled circuits
+npm run test:all     # everything: 10 contract tests + 48 api tests + the e2e trace
 ```
+
+See [`testing/README.md`](testing/README.md) for what each layer proves and how to run them
+individually.
 
 ### 6. Run the app
 
