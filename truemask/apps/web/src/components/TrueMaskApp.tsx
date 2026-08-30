@@ -60,7 +60,7 @@ const VERIFY_STEPS: StepDefinition[] = [
   { id: "verifyResult", label: "Result" },
 ];
 
-import { useMidnight } from "@/hooks/useMidnight";
+import { useMidnight, CONTRACT_ADDRESS, FAUCET_URL, lookupRecordOnChain } from "@/hooks/useMidnight";
 
 /**
  * The pipeline works in pixels; the UI positions overlays in percentages.
