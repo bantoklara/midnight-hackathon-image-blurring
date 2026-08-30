@@ -1,9 +1,5 @@
 import { CompiledContract } from '@midnight-ntwrk/compact-js';
 
-export * as Leaderboard from '../managed/leaderboard/contract/index.js';
-export { createWitnesses, setCustomName, createLeaderboardPrivateState } from './witnesses.js';
-export type { LeaderboardPrivateState } from './witnesses.js';
-
 export * as TrueMask from '../managed/truemask/contract/index.js';
 export {
   createTrueMaskWitnesses,
@@ -14,18 +10,8 @@ export {
 export type { TrueMaskPrivateState } from './truemask-witnesses.js';
 export { LANE_COUNT, DEFAULT_BLOCK_SIZE } from './truemask-constants.js';
 
-import * as LeaderboardContract from '../managed/leaderboard/contract/index.js';
 import * as TrueMaskContract from '../managed/truemask/contract/index.js';
-import { createWitnesses } from './witnesses.js';
 import { createTrueMaskWitnesses } from './truemask-witnesses.js';
-
-export const CompiledLeaderboardContract = CompiledContract.make(
-  'leaderboard',
-  LeaderboardContract.Contract,
-).pipe(
-  CompiledContract.withWitnesses(createWitnesses()),
-  CompiledContract.withCompiledFileAssets('./managed/leaderboard'),
-);
 
 export const CompiledTrueMaskContract = CompiledContract.make(
   'truemask',
@@ -43,3 +29,4 @@ export const CompiledTrueMaskContract = CompiledContract.make(
  */
 export const { compute_preserved_root: computePreservedRootOnChainDefinition } =
   TrueMaskContract.pureCircuits;
+

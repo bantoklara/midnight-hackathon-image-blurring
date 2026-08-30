@@ -9,7 +9,7 @@
     "truemask/apps/web"
   ],
   "scripts": {
-    "compile": "cd contract && npm run compact && npm run compact:truemask",
+    "compile": "cd contract && npm run compact:truemask",
     "build": "cd contract && npm run build && cd ../api && npm run build",
     "dev": "npm run dev --workspace truemask/apps/web",
     "test": "npm run test --workspace contract && npm run test --workspace api",

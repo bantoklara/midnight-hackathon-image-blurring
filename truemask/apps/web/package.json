@@ -27,7 +27,7 @@
     "@midnight-ntwrk/midnight-js-fetch-zk-config-provider": "4.1.1",
     "@midnight-ntwrk/midnight-js-level-private-state-provider": "4.1.1",
     "truemask-api": "*",
-    "leaderboard-contract": "*"
+    "truemask-contract": "*"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
