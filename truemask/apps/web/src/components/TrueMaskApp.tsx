@@ -205,12 +205,27 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
       // and this exists to protect sources.
       const totalBlocks = Math.ceil(image.width / 16) * Math.ceil(image.height / 16);
       setStatus(`Hashing ${totalBlocks.toLocaleString()} blocks…`);
-      const redaction = await vision.redactImage(image, {
-        manualDetections: selectedDetections.map((item) => toPixelDetection(item, image)),
-        style: "blackout",
-        // Yields between batches so the tab keeps painting on large photos.
-        onProgress: (done, total) =>
-          setStatus(`Hashing blocks… ${Math.round((done / total) * 100)}%`),
+      const redaction = await new Promise<vision.RedactionResult>((resolve, reject) => {
+        const worker = new Worker(new URL('../workers/redact.worker.ts', import.meta.url));
+        worker.onerror = (err) => {
+          worker.terminate();
+          reject(new Error("Worker error: " + (err.message || "failed to load script")));
+        };
+        worker.onmessage = (e) => {
+          if (e.data.type === "progress") {
+            setStatus(`Hashing blocks… ${Math.round((e.data.done / e.data.total) * 100)}%`);
+          } else if (e.data.type === "done") {
+            worker.terminate();
+            resolve(e.data.redaction);
+          } else if (e.data.type === "error") {
+            worker.terminate();
+            reject(new Error(e.data.error));
+          }
+        };
+        worker.postMessage({
+          image,
+          detections: selectedDetections.map((item) => toPixelDetection(item, image))
+        });
       });
 
       // PNG, never JPEG. JPEG re-quantises every block, which changes bytes
