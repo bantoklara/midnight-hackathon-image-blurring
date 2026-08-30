@@ -8,10 +8,10 @@ A journalist photographs a sensitive source, a witness, or a risky scene. Modern
 out where a photo was taken just from background detail: faces, shop signs, a recognisable facade,
 no GPS metadata needed. Publishing the picture can expose both the source and the journalist.
 
-Blurring the sensitive parts is not enough on its own, for two reasons:
+Covering the sensitive parts with a soft effect is not enough on its own, for two reasons:
 
-1. **Blur is reversible.** Gaussian blur and pixelation both leak enough to be attacked.
-2. **Nobody can check the rest.** A reader has no way to know whether the *unblurred* part of the
+1. **Soft covers are reversible.** Gaussian blur and pixelation both leak enough to be attacked.
+2. **Nobody can check the rest.** A reader has no way to know whether the *uncovered* part of the
    picture is the real scene or has been quietly edited, and the journalist cannot prove it is,
    because proving it would mean handing over the original.
 
@@ -185,7 +185,7 @@ stateDiagram-v2
       and stay in the preserved set.
     end note
     note right of redact
-      Blackout, never blur.
+      Blackout, never a soft cover.
       PNG, never JPEG.
     end note
 ```

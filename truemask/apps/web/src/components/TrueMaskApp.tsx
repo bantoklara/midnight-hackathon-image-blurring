@@ -330,8 +330,8 @@ export default function TrueMaskApp() {
     try {
       // One call does the whole thing: grid, block mapping, block hashes, the
       // preserved root, the bitmap commitment and the blacked-out pixels.
-      // Blackout, not blur: blur and pixelation are reversible enough to attack,
-      // and this exists to protect sources.
+      // Solid blackout only, never a soft cover: Gaussian blur and pixelation
+      // are both reversible enough to attack, and this exists to protect sources.
       const totalBlocks =
         Math.ceil(image.width / 16) * Math.ceil(image.height / 16);
       setStatus(`Hashing ${totalBlocks.toLocaleString()} blocks…`);
