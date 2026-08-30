@@ -5,12 +5,20 @@ import type { Detection } from "@/types";
 
 interface ImageComparisonProps {
   imageUrl: string;
+  /**
+   * Object URL of the real redacted PNG produced by the vision pipeline. This
+   * panel used to render `imageUrl` with a CSS blur on top, which showed the
+   * ORIGINAL pixels behind a filter — the opposite of what the app promises.
+   * Falls back to the original only if redaction has not finished yet.
+   */
+  redactedUrl: string | null;
   detections: Detection[];
   onContinue: () => void;
 }
 
 export default function ImageComparison({
   imageUrl,
+  redactedUrl,
   detections,
   onContinue,
 }: ImageComparisonProps) {
@@ -31,7 +39,7 @@ export default function ImageComparison({
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid items-start gap-6 lg:grid-cols-2">
         {/* ORIGINAL */}
         <div>
           <div className="mb-3 flex items-center gap-2">
@@ -39,11 +47,11 @@ export default function ImageComparison({
             <span className="text-sm font-medium text-white/70">Original</span>
           </div>
 
-          <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-black">
+          <div className="relative self-start overflow-hidden rounded-3xl border border-white/10 bg-black">
             <img
               src={imageUrl}
               alt="Original image"
-              className="max-h-[600px] w-full object-contain"
+              className="block max-h-[600px] w-full object-contain"
             />
 
             <div className="absolute left-4 top-4 rounded-lg border border-white/10 bg-black/60 px-3 py-2 text-xs text-white/60 backdrop-blur">
@@ -59,31 +67,15 @@ export default function ImageComparison({
             <span className="text-sm font-medium text-white">Protected</span>
           </div>
 
-          <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-black">
+          <div className="relative self-start overflow-hidden rounded-3xl border border-white/10 bg-black">
             <img
-              src={imageUrl}
+              src={redactedUrl ?? imageUrl}
               alt="Protected image"
-              className="max-h-[600px] w-full object-contain"
+              className="block max-h-[600px] w-full object-contain"
             />
 
-            {/* Blur overlays */}
-            {detections.map((item) => (
-              <div
-                key={item.id}
-                style={{
-                  left: `${item.x}%`,
-                  top: `${item.y}%`,
-                  width: `${item.width}%`,
-                  height: `${item.height}%`,
-                }}
-                className="absolute overflow-hidden rounded-md border border-white/20 backdrop-blur-2xl"
-              >
-                <div className="h-full w-full bg-black/20" />
-              </div>
-            ))}
-
             <div className="absolute left-4 top-4 rounded-lg border border-white/10 bg-black/60 px-3 py-2 text-xs text-white/70 backdrop-blur">
-              Protected image
+              {redactedUrl ? "Protected image" : "Preparing…"}
             </div>
           </div>
         </div>

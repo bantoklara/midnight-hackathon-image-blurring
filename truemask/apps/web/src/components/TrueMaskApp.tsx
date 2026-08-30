@@ -102,6 +102,8 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
   const [status, setStatus] = useState<string | null>(null);
   /** The decoded original pixels. Held so the protect step hashes what was scanned. */
   const sourcePixels = useRef<ImageData | null>(null);
+  /** Object URL of the real redacted PNG. This is what the "protected" panels show. */
+  const [redactedUrl, setRedactedUrl] = useState<string | null>(null);
 
   const currentStepIndex = STEPS.findIndex((item) => item.id === step);
 
@@ -130,12 +132,41 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
       const image = await loadRgbaImage(url);
       sourcePixels.current = image;
 
-      // Faces via MediaPipe, signs/plates/documents via OCR — both from the
-      // shared pipeline, so these are the same boxes the redaction will use.
+      // Faces via MediaPipe, signs and documents via OCR — both from the shared
+      // pipeline, so these are the same boxes the redaction will use.
+      //
+      // Run independently: Tesseract downloads language data on first use and is
+      // the more fragile of the two. Awaiting both in one array meant an OCR
+      // failure threw away perfectly good face detections as well.
+      setStatus("Scanning for faces and text…");
+      const [faces, text] = await Promise.allSettled([
+        vision.detectFaces(image),
+        vision.detectText(image, { minConfidence: 0.75 }),
+      ]);
+
       const found: PixelDetection[] = [
-        ...(await vision.detectFaces(image)),
-        ...(await vision.detectText(image)),
+        ...(faces.status === "fulfilled" ? faces.value : []),
+        // Drop word boxes smaller than a block — on a photo these are mostly
+        // noise (logos, menu fragments) rather than location-revealing text.
+        ...(text.status === "fulfilled"
+          ? text.value.filter((item) => item.box.width >= 16 && item.box.height >= 8)
+          : []),
       ];
+
+      const failures = [
+        faces.status === "rejected" ? "face detection" : null,
+        text.status === "rejected" ? "text detection" : null,
+      ].filter(Boolean);
+      if (faces.status === "rejected") console.error("Face detection failed:", faces.reason);
+      if (text.status === "rejected") console.error("Text detection failed:", text.reason);
+
+      setStatus(
+        failures.length
+          ? `${failures.join(" and ")} unavailable — showing ${found.length} region(s) from the rest. Add any missed area by hand before protecting.`
+          : found.length
+            ? null
+            : "No faces or text detected. Nothing will be redacted unless you add a region.",
+      );
 
       setDetections(found.map((item, index) => toUiDetection(item, index, image)));
       setStep("review");
@@ -172,9 +203,14 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
       // preserved root, the bitmap commitment and the blacked-out pixels.
       // Blackout, not blur: blur and pixelation are reversible enough to attack,
       // and this exists to protect sources.
+      const totalBlocks = Math.ceil(image.width / 16) * Math.ceil(image.height / 16);
+      setStatus(`Hashing ${totalBlocks.toLocaleString()} blocks…`);
       const redaction = await vision.redactImage(image, {
         manualDetections: selectedDetections.map((item) => toPixelDetection(item, image)),
         style: "blackout",
+        // Yields between batches so the tab keeps painting on large photos.
+        onProgress: (done, total) =>
+          setStatus(`Hashing blocks… ${Math.round((done / total) * 100)}%`),
       });
 
       // PNG, never JPEG. JPEG re-quantises every block, which changes bytes
@@ -183,6 +219,13 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
       const pngBytes = await pngBlob.arrayBuffer();
       const redactedHash = await sha256Bytes(pngBytes);
       setProtectedHash(toHexString(redactedHash));
+
+      // This is the image the app actually protected. Previously it was hashed
+      // and then dropped, and every "protected" panel rendered the original.
+      setRedactedUrl((previous) => {
+        if (previous) URL.revokeObjectURL(previous);
+        return URL.createObjectURL(pngBlob);
+      });
 
       if (!isWalletAvailable) {
         setStatus(
@@ -220,9 +263,14 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
     if (imageUrl) {
       URL.revokeObjectURL(imageUrl);
     }
+    if (redactedUrl) {
+      URL.revokeObjectURL(redactedUrl);
+    }
 
     setFile(null);
     setImageUrl(null);
+    setRedactedUrl(null);
+    setStatus(null);
     setDetections([]);
     setOriginalHash("");
     setProtectedHash("");
@@ -244,19 +292,25 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
         </button>
 
         <div className="flex items-center gap-4">
+          {/*
+            Only offered when a Midnight wallet is actually installed. Redaction
+            and the integrity commitments are entirely local; the wallet is only
+            needed to publish the record on-chain. Showing a dead "Connect"
+            button to everyone else just implies the app is broken without one.
+          */}
           {address ? (
             <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-2 text-sm text-green-400">
               Connected: {address.slice(0, 8)}...
             </div>
-          ) : (
+          ) : isWalletAvailable ? (
             <button
               onClick={connect}
               disabled={isConnecting}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-50"
+              className="rounded-lg border border-white/10 px-4 py-2 text-sm text-white/70 transition hover:bg-white/5 disabled:opacity-50"
             >
-              {isConnecting ? "Connecting..." : "Connect Lace Wallet"}
+              {isConnecting ? "Connecting..." : "Connect wallet"}
             </button>
-          )}
+          ) : null}
           {step !== "upload" && (
             <button
               onClick={resetApp}
@@ -305,6 +359,12 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
           })}
         </div>
 
+        {status && (
+          <p className="mx-auto mt-4 max-w-3xl text-center text-sm text-white/50">
+            {status}
+          </p>
+        )}
+
         {step === "upload" && (
           <UploadScreen
             inputRef={inputRef}
@@ -335,6 +395,7 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
         {step === "compare" && imageUrl && (
           <ImageComparison
             imageUrl={imageUrl}
+            redactedUrl={redactedUrl}
             detections={selectedDetections}
             onContinue={() => setStep("verified")}
           />
@@ -343,6 +404,7 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
         {step === "verified" && imageUrl && (
           <VerifiedScreen
             imageUrl={imageUrl}
+            redactedUrl={redactedUrl}
             detections={selectedDetections}
             originalHash={originalHash}
             protectedHash={protectedHash}
@@ -643,12 +705,14 @@ function ProtectingScreen({
 
 function VerifiedScreen({
   imageUrl,
+  redactedUrl,
   detections,
   originalHash,
   protectedHash,
   onReset,
 }: {
   imageUrl: string;
+  redactedUrl: string | null;
   detections: Detection[];
   originalHash: string;
   protectedHash: string;
@@ -667,13 +731,24 @@ function VerifiedScreen({
         </p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <div className="overflow-hidden rounded-3xl border border-white/10 bg-black">
+      <div className="grid items-start gap-6 md:grid-cols-2">
+        <div className="self-start overflow-hidden rounded-3xl border border-white/10 bg-black">
           <img
-            src={imageUrl}
-            alt="Protected preview"
-            className="max-h-[500px] w-full object-contain"
+            src={redactedUrl ?? imageUrl}
+            alt="Protected image"
+            className="block max-h-[500px] w-full object-contain"
           />
+
+          {redactedUrl && (
+            <a
+              href={redactedUrl}
+              download="truemask-protected.png"
+              className="flex items-center justify-center gap-2 border-t border-white/10 px-4 py-3 text-sm text-white/70 hover:text-white"
+            >
+              <FileImage size={15} />
+              Download protected PNG
+            </a>
+          )}
         </div>
 
         <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">

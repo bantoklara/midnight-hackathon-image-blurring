@@ -50,6 +50,12 @@ export interface RedactImageOptions extends RedactionOptions {
   detectors?: DetectionKind[];
   /** Minimum detector confidence in [0, 1]. */
   minConfidence?: number;
+  /**
+   * Called with (done, total) as blocks are hashed, across both hashing passes.
+   * Supplying it also makes the pipeline yield to the event loop between batches,
+   * so a browser tab stays responsive on large photos. See hashing.ts.
+   */
+  onProgress?: (done: number, total: number) => void;
 }
 
 /**
@@ -67,11 +73,16 @@ export async function redactImage(
   const authorizationBitmap = packAuthorizationBitmap(grid, authorizedBlocks);
   const authorizationCommitment = await computeAuthorizationCommitment(grid, authorizationBitmap);
 
+  // Two hashing passes, reported as one continuous 0..2N progress bar.
+  const { onProgress } = options;
+  const pass = (offset: number): { onProgress?: (d: number, t: number) => void } =>
+    onProgress ? { onProgress: (done, total) => onProgress(offset * total + done, 2 * total) } : {};
+
   // Hash the preserved blocks of the original BEFORE redacting...
-  const originalLaneDigests = await computeLaneDigests(image, grid, authorizedBlocks);
+  const originalLaneDigests = await computeLaneDigests(image, grid, authorizedBlocks, pass(0));
   const redactedImage = applyRedaction(image, grid, authorizedBlocks, options);
   // ...and of the published image after, so the two can be compared.
-  const laneDigests = await computeLaneDigests(redactedImage, grid, authorizedBlocks);
+  const laneDigests = await computeLaneDigests(redactedImage, grid, authorizedBlocks, pass(1));
 
   const originalRoot = await foldLaneDigests(originalLaneDigests);
   const preservedRoot = await foldLaneDigests(laneDigests);

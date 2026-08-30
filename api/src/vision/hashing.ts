@@ -55,22 +55,55 @@ export async function hashBlock(
   );
 }
 
+/** Blocks hashed per batch. Tunes throughput and UI responsiveness, never the output. */
+const HASH_BATCH_SIZE = 256;
+
+export interface LaneDigestOptions {
+  /**
+   * Called after each batch with (blocksHashed, totalBlocks). Supplying this also
+   * makes the loop yield to the event loop between batches, so a browser tab can
+   * repaint instead of freezing. Omit it in Node for maximum throughput.
+   */
+  onProgress?: (done: number, total: number) => void;
+}
+
 /**
  * Reduce every preserved (non-authorized) block to exactly LANE_COUNT digests.
  * Block i contributes to lane i % LANE_COUNT, in ascending index order.
+ *
+ * Blocks are hashed in batches rather than one awaited call at a time — a 12 MP
+ * photo is ~47,600 blocks, and one sequential `await` each costs seconds of pure
+ * promise scheduling. Batching changes only the scheduling: leaves still enter
+ * their lane in ascending block order, so the bytes hashed are identical.
+ * `api/src/test/integration.test.ts` pins that to the compiled circuit.
  */
 export async function computeLaneDigests(
   image: RgbaImage,
   grid: BlockGrid,
   authorizedBlocks: number[],
+  options: LaneDigestOptions = {},
 ): Promise<Uint8Array[]> {
   assertImageMatchesGrid(image, grid);
   const authorized = new Set(authorizedBlocks);
   const lanes: Uint8Array[][] = Array.from({ length: LANE_COUNT }, () => []);
 
+  const preserved: number[] = [];
   for (let index = 0; index < grid.blockCount; index++) {
-    if (authorized.has(index)) continue;
-    lanes[index % LANE_COUNT]!.push(await hashBlock(grid, index, extractBlock(image, grid, index)));
+    if (!authorized.has(index)) preserved.push(index);
+  }
+
+  for (let start = 0; start < preserved.length; start += HASH_BATCH_SIZE) {
+    const batch = preserved.slice(start, start + HASH_BATCH_SIZE);
+    const leaves = await Promise.all(
+      batch.map((index) => hashBlock(grid, index, extractBlock(image, grid, index))),
+    );
+    // Appended in ascending block order, which is what defines each lane's preimage.
+    batch.forEach((index, offset) => lanes[index % LANE_COUNT]!.push(leaves[offset]!));
+
+    if (options.onProgress) {
+      options.onProgress(Math.min(start + HASH_BATCH_SIZE, preserved.length), preserved.length);
+      await yieldToEventLoop();
+    }
   }
 
   return Promise.all(
@@ -78,6 +111,11 @@ export async function computeLaneDigests(
       sha256(concat(ascii(LANE_DOMAIN), u32be(grid.cols, grid.rows, grid.blockSize, lane), ...leaves)),
     ),
   );
+}
+
+/** Hand the main thread back so a browser can paint between batches. */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /**
@@ -106,8 +144,9 @@ export async function computePreservedRoot(
   image: RgbaImage,
   grid: BlockGrid,
   authorizedBlocks: number[],
+  options: LaneDigestOptions = {},
 ): Promise<Uint8Array> {
-  return foldLaneDigests(await computeLaneDigests(image, grid, authorizedBlocks));
+  return foldLaneDigests(await computeLaneDigests(image, grid, authorizedBlocks, options));
 }
 
 /**
