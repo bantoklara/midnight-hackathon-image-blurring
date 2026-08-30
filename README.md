@@ -21,7 +21,7 @@ TrueMask closes that gap by turning redaction into something you can check, not 
 journalist drops the photo in before publishing, and from that point on, everything happens on
 their own machine:
 
-- faces are found with **Human** (a browser-side ML model), signs and plates and documents with
+- faces are found with ***Human*** (a browser-side ML model), signs and plates and documents with
   **Tesseract OCR**;
 - every detected region is blacked out **irreversibly** and exported as a **lossless PNG**;
 - the image is cut into a fixed grid, and a cryptographic root is computed over every block that
@@ -33,8 +33,8 @@ The original image never leaves the machine. Anyone holding the published photo 
 the same block hashing and check it against the chain. If a single pixel outside the redactions has
 changed, the roots diverge and verification fails.
 
-> **One-line pitch:** we protect journalists and their sources from being identified by AI
-> geolocation, with mathematical proof that the protection was real.
+> This project can be synthesized in a one-line pitch: *We protect journalists and their sources from being identified by AI
+> geolocation, with mathematical proof that the protection was real.*
 
 ---
 
