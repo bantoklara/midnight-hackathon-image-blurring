@@ -1,193 +1,127 @@
 # TrueMask
 
-**Provable redaction for journalism, on Midnight.**
+**Privacy-preserving image redaction, backed by a zero-knowledge proof on Midnight.**
 
-## The problem
-
-A journalist photographs a sensitive source, a witness, or a risky scene. Modern AI can now work
-out where a photo was taken just from background detail: faces, shop signs, a recognisable facade,
-no GPS metadata needed. Publishing the picture can expose both the source and the journalist.
-
-Covering the sensitive parts with a soft effect is not enough on its own, for two reasons:
-
-1. **Soft covers are reversible.** Gaussian blur and pixelation both leak enough to be attacked.
-2. **Nobody can check the rest.** A reader has no way to know whether the *uncovered* part of the
-   picture is the real scene or has been quietly edited, and the journalist cannot prove it is,
-   because proving it would mean handing over the original.
-
-## The solution
-
-TrueMask closes that gap by turning redaction into something you can check, not just trust. The
-journalist drops the photo in before publishing, and from that point on, everything happens on
-their own machine:
-
-- faces are found with ***Human*** (a browser-side ML model), signs and plates and documents with
-  **Tesseract OCR**;
-- every detected region is blacked out **irreversibly** and exported as a **lossless PNG**;
-- the image is cut into a fixed grid, and a cryptographic root is computed over every block that
-  was *not* redacted;
-- a **zero-knowledge circuit on Midnight** records that root, asserting that the untouched blocks of
-  the published image hash identically to the same blocks of the original.
-
-The original image never leaves the machine. Anyone holding the published photo can later re-run
-the same block hashing and check it against the chain. If a single pixel outside the redactions has
-changed, the roots diverge and verification fails.
-
-> This project can be synthesized in a one-line pitch: *We protect journalists and their sources from being identified by AI
-> geolocation, with mathematical proof that the protection was real.*
+> *We protect journalists and their sources from being identified by AI geolocation — with mathematical proof that the protection was real.*
 
 ---
 
-## How it works
+## The problem
 
-That's the pitch. Concretely, six steps carry a photo from upload to a record anyone can check:
+A journalist photographs a sensitive source, a witness, or a dangerous scene. Modern AI can figure out *where* a photo was taken just from background details — faces, shop signs, a street name, a recognisable building — without needing any GPS data in the file. Publishing the picture can expose both the source and the journalist.
 
-1. **Upload.** The journalist drops in the original photo. It never leaves their machine.
-2. **Detect.** Human finds faces, Tesseract OCR finds signs, plates, and text, both in the browser.
-3. **Redact.** Every flagged region is blacked out **irreversibly**, exported as a lossless PNG.
-4. **Commit.** The image is split into blocks, and a **ZK circuit on Midnight** records a root over
-   every block that was *not* touched.
-5. **Publish** *(optional)*. The record goes on Midnight, so anyone can verify it independently
-   instead of trusting the journalist's word.
-6. **Verify.** Anyone holding the published photo and its ID can re-hash it and check for a match.
-   No wallet, no cost, no setup.
+Blurring or pixelating the sensitive parts is not enough on its own, for two reasons:
+
+1. **Blurring is reversible.** Gaussian blur and pixelation both leak enough signal to be partially reversed with off-the-shelf tools.
+2. **The "safe" parts can't be verified.** A reader has no way to know whether the unblurred area of the picture is the real scene or has been quietly edited. The journalist can't prove it either — because proving it would require handing over the original, which defeats the purpose.
+
+---
+
+## The solution
+
+TrueMask turns redaction into something you can *prove*, not just trust. Everything runs on the journalist's own machine:
+
+1. Faces are found by **[Human](https://github.com/vladmandic/human)** — a browser-side AI model running entirely in WebAssembly.
+2. Text on signs, ID badges, number plates, and documents is found by **[Tesseract OCR](https://github.com/naptha/tesseract.js)** — also running in the browser.
+3. Every detected region is blacked out **irreversibly** and exported as a lossless PNG.
+4. The image is split into a fixed 16×16 pixel block grid. A cryptographic hash is computed over every block that was **not** redacted.
+5. A **zero-knowledge circuit on [Midnight](https://midnight.network)** records those hashes, asserting that the untouched blocks of the published image are identical to the same blocks in the original.
+
+**The original image never leaves the device.** Anyone who later receives the published photo and its on-chain ID can re-hash it and compare — if a single pixel outside the redacted areas has changed, the roots diverge and verification fails.
+
+---
+
+## How it works — step by step
 
 ```
-original photo (stays on device)
-      │
-      ▼
-   detect ──▶ redact ──▶ hash preserved blocks ──▶ ZK circuit (Midnight)
-                                                          │
-                                          published record (optional, on-chain)
-                                                          │
-published photo + ID ──▶ re-hash ──▶ compare with record ──▶ match / no match
+Original photo  (stays on your machine, always)
+       │
+       ▼
+   AI Detect ──▶ Black out ──▶ Hash preserved blocks ──▶ ZK circuit (Midnight)
+                                                                  │
+                                              Published record (optional, on-chain)
+                                                                  │
+Published photo + Record ID ──▶ Re-hash ──▶ Compare ──▶ Match / No match
 ```
+
+| Step | What happens | Where |
+|---|---|---|
+| Upload | Journalist drops in the original photo | Browser |
+| Detect | Human AI finds faces; Tesseract finds text | Browser (WebAssembly) |
+| Review | Journalist sees bounding boxes, can remove or add regions manually | Browser |
+| Redact | Flagged regions are blacked out, lossless PNG exported | Browser |
+| Commit | Image split into blocks, ZK circuit records the root | Midnight chain |
+| Verify | Anyone re-hashes the published photo and checks against the record | Browser (no wallet needed) |
 
 ---
 
 ## What is actually built
 
-That's the design. Here's how much of it is real right now, checked rather than promised:
-
 | Area | Status |
 |---|---|
-| Compact contract (`submit_redaction`, `verify_integrity`, `compute_preserved_root`) | **Working**, compiles, 10 tests |
-| Vision pipeline (grid, block hashing, root, bitmap, blackout redaction) | **Working**, 41 tests |
-| Prover/verifier hash agreement (TS root == compiled circuit root) | **Working**, pinned by test |
-| Tamper detection (one altered pixel fails verification) | **Working**, covered end to end |
-| `TrueMaskAPI` (deploy / join / submit / verify) | **Working**, typechecked and built |
-| Next.js UI wired to the real pipeline and the real contract | **Working**, builds and runs |
-| Face + text detection in the browser | **Implemented**, not automatically testable (browser-only) |
-| Protected image displayed + downloadable as PNG | **Working** |
-| Wallet connection, on-chain submission | **Implemented, tested against real Preprod**, blocked by a documented Preprod infrastructure issue, not our code |
-| Local devnet (node + indexer) | **Not set up**, documented below |
+| Compact ZK contract (`submit_redaction`, `verify_integrity`) | ✅ Working — compiles, 10 tests pass |
+| Vision pipeline (grid, hashing, root, bitmap, blackout) | ✅ Working — 41 tests pass |
+| Prover / verifier hash agreement (TypeScript root = circuit root) | ✅ Working — pinned by test |
+| Tamper detection (one altered pixel breaks verification) | ✅ Working — covered end-to-end |
+| `TrueMaskAPI` (deploy / join / submit / verify) | ✅ Working — type-checked and built |
+| Next.js UI wired to the real pipeline and contract | ✅ Working — builds and runs |
+| Face detection with tight bounding boxes (Human AI) | ✅ Working — browser only |
+| Text detection (Tesseract OCR) | ✅ Working — browser only |
+| Manual region drawing (add or remove boxes by hand) | ✅ Working |
+| Protected image displayed and downloadable as PNG | ✅ Working |
+| Wallet connection and on-chain submission | ✅ Implemented — blocked by a documented Preprod network issue (see Known gaps) |
+| Local devnet (node + indexer + proof server) | ⚠️ Not set up — documented below |
 
-### What the proof does and does not establish
+### What the proof guarantees (and what it doesn't)
 
-It establishes **tamper-evidence**: once a redaction is registered, any later change to a block
-that was not authorized for redaction breaks the stored root, and `verify_integrity` fails. It also
-binds the image to a declared redaction policy through a commitment to the authorization bitmap.
+**It does guarantee:** Once a redaction is registered, any later change to a block that was *not* redacted breaks the stored root, and `verify_integrity` fails. The redaction policy (which areas were redacted) is also committed, so it can't be silently changed later.
 
-It does **not** establish that the journalist was honest about which original they started from.
-Both roots are supplied by the prover. That limit is inherent to committing to an image only the
-prover holds, and it is stated here rather than glossed over.
+**It does not guarantee:** That the journalist was honest about which original image they started from. Both roots are provided by the prover — this is an inherent limit of committing to an image only the prover holds, and it is stated here clearly rather than glossed over.
 
 ---
 
-## Architecture (deep dive)
-
-The diagram above is the whole idea in one glance. This section is for anyone who wants to see
-exactly how the pieces fit. Feel free to skip ahead to [Repository layout](#repository-layout) if
-you already have what you need.
+## Architecture
 
 ```mermaid
 flowchart TB
     subgraph browser["Journalist's machine (the original never leaves it)"]
         direction TB
         UP["Photo upload<br/><i>truemask/apps/web</i>"]
-        DET["Detect faces + text<br/><i>Human · Tesseract</i>"]
-        GRID["Split into a 16px block grid<br/>map detections to blocks"]
-        RED["Black out authorized blocks<br/>export lossless PNG"]
+        DET["Detect faces + text<br/><i>Human AI · Tesseract OCR</i>"]
+        GRID["Split into 16px block grid<br/>map detections to blocks"]
+        RED["Black out flagged blocks<br/>export lossless PNG"]
         HASH["Hash every preserved block<br/>fold into 16 lane digests"]
         UP --> DET --> GRID --> RED --> HASH
     end
 
-    subgraph shared["api/src/vision (one pipeline, shared by prover and verifier)"]
+    subgraph shared["api/src/vision — shared pipeline (prover and verifier use the same code)"]
         direction LR
         BS["block-splitter.ts"]
         HS["hashing.ts"]
         RD["redaction.ts"]
     end
 
-    subgraph chain["Midnight"]
+    subgraph chain["Midnight (optional publish step)"]
         direction TB
         PS["Proof server :6300"]
         CT["truemask.compact<br/>submit_redaction · verify_integrity"]
-        LG[("ledger records<br/>Map&lt;Bytes32, RedactionRecord&gt;")]
+        LG[("Ledger<br/>Map&lt;Bytes32, RedactionRecord&gt;")]
         PS --> CT --> LG
     end
 
     GRID -.-> BS
     HASH -.-> HS
     RED -.-> RD
-    HASH -->|"preserved root + bitmap commitment<br/>+ grid dimensions"| PS
+    HASH -->|"preserved root + bitmap commitment"| PS
 
-    subgraph verifier["Editor · reader · court"]
-        VIMG["Published PNG + bitmap"]
-        VCHK["Re-hash preserved blocks"]
-        VIMG --> VCHK
+    subgraph verifier["Editor · Reader · Court"]
+        VU["Published photo + Record ID"]
+        VH["Re-hash preserved blocks"]
+        VC["Compare roots"]
+        VU --> VH --> VC
     end
-    VCHK -->|"verify_integrity"| CT
-    LG -->|"stored root"| VCHK
-```
 
-### Why the image is split into blocks
-
-A ZK circuit cannot hash a whole photo. Compact unrolls every loop, and `persistentHash` is
-SHA-256, which is expensive in-circuit. A 1920×1080 photo is 8160 blocks; hashing each one inside
-the circuit is not viable.
-
-So the reduction happens outside the circuit and lands on a **fixed width**:
-
-```
-leaf_i = SHA256("truemask:leaf:v1"  || cols,rows,blockSize,i || block pixels)   for every preserved block
-lane_j = SHA256("truemask:lane:v1"  || cols,rows,blockSize,j || leaf_i ‖ …)     for i % 16 == j
-root   = persistentHash<Vector<16, Bytes<32>>>(lane_0 … lane_15)               <- in the circuit
-```
-
-The circuit's cost is therefore constant no matter how large the photo is. The block index and the
-grid dimensions are bound into every leaf, so blocks cannot be permuted and the image cannot be
-reframed or resized while still matching.
-
-**The one thing that must never drift** is the definition of that root. `compute_preserved_root` is
-a `pure` circuit, so the compiler also exposes it to TypeScript as
-`pureCircuits.compute_preserved_root(lanes)`, with no proof, no wallet, and no context needed. The
-pipeline computes the root with WebCrypto for speed (verified byte-identical to the circuit), and
-`api/src/test/integration.test.ts` asserts the two still agree. If a compiler version ever changes
-that encoding, a test fails loudly instead of proofs silently never verifying.
-
-### The user's path through the app
-
-```mermaid
-stateDiagram-v2
-    [*] --> upload
-    upload --> scan: photo selected
-    scan --> review: faces + text detected
-    review --> review: toggle a region on/off
-    review --> redact: approve
-    redact --> verified: blackout + PNG + root computed
-    verified --> compare: record submitted (or held locally)
-    compare --> [*]
-
-    note right of review
-      The journalist has the final say.
-      Deselected regions are NOT redacted
-      and stay in the preserved set.
-    end note
-    note right of redact
-      Blackout, never a soft cover.
-      PNG, never JPEG.
-    end note
+    LG -->|"stored root"| VC
 ```
 
 ---
@@ -195,170 +129,174 @@ stateDiagram-v2
 ## Repository layout
 
 ```
-contract/            Compact contracts + their TypeScript bindings
-  truemask.compact     the redaction-integrity contract  <- the product
-  managed/             compiled circuits, proving keys, zkir (committed on purpose)
-  src/                 CompiledTrueMaskContract + witness implementations
-  test/                circuit tests
-api/                 Platform-agnostic logic
-  src/vision/          detection, block splitting, hashing, redaction
-  src/index.ts         TrueMaskAPI: deploy / join / submitRedaction / verifyIntegrity
-  src/test/            vision unit tests + vision-to-circuit integration tests
+contract/            Compact smart contract + compiled output
+  src/               Contract source + witness implementations
+  managed/truemask/  Pre-compiled output (committed — no Compact toolchain needed)
+  test/              Circuit tests
+api/                 Platform-agnostic TypeScript logic (shared by browser and Node)
+  src/vision/        Detection, block splitting, hashing, redaction
+  src/index.ts       TrueMaskAPI — deploy, join, submitRedaction, verifyIntegrity
+  src/test/          Vision unit tests + vision-to-circuit integration tests
 truemask/apps/web/   Next.js 16 frontend
-  src/hooks/useMidnight.ts   wallet connection + the six Midnight providers
-  src/components/            the UI
-proof-server/        docker-compose for the proof server
-testing/             e2e-truemask.mjs + README explaining the whole test strategy
-_archive/            superseded files, kept for history, never built
+  src/hooks/useMidnight.ts   Wallet connection + all six Midnight providers
+  src/components/            UI components
+  src/workers/               Web Worker for off-thread image hashing
+proof-server/        Docker Compose for the local proof server
+testing/             e2e test script + full test strategy documentation
 ```
 
 ---
 
 ## Setup
 
-The steps below take a fresh clone to a running app. Each one builds on the last, so run them in
-order the first time through.
+Run these steps in order the first time. Each one builds on the last.
 
 ### Prerequisites
 
-| Tool | Version | Notes |
+| Tool | Minimum version | Notes |
 |---|---|---|
-| Node.js | 22+ | the pipeline uses `crypto.subtle` |
-| Docker | any recent | for the proof server |
-| Compact CLI | 0.5.2 with compiler **0.31.1** | only needed to recompile the contract |
+| Node.js | 22+ | The pipeline uses `crypto.subtle`, which requires Node 22 |
+| Docker | Any recent | Required to run the local proof server |
+| Compact CLI | `0.5.2` with compiler `0.31.1` | Only needed if you want to **recompile** the contract |
 
-The compiler is pinned because the workspace pins `@midnight-ntwrk/compact-runtime@0.16.0`
-(`contract/package.json`); compiling with a newer toolchain than that runtime expects
-desynchronises the workspace. Install the pinned compiler with `compact update 0.31.1`.
+> **Note on the Compact version:** The workspace pins `@midnight-ntwrk/compact-runtime@0.16.0`. Compiling with a newer compiler than that runtime expects will desynchronise the workspace. Install the pinned compiler with `compact update 0.31.1`.
+>
+> `contract/managed/` is committed on purpose — a fresh clone can build, test, and run the app without installing the Compact toolchain at all.
 
-`contract/managed/` is **committed on purpose**: a fresh clone can build, test and run the app
-without installing the Compact toolchain at all.
-
-### 1. Install
+### 1. Install dependencies
 
 ```bash
-npm install          # installs all three workspaces: contract, api, truemask/apps/web
+npm install
 ```
+
+This installs all three workspaces: `contract`, `api`, and `truemask/apps/web`.
 
 ### 2. Start the proof server
 
 ```bash
-npm run proof-server                         # docker compose up -d
-curl http://localhost:6300/health            # -> {"status":"ok", ...}
+npm run proof-server
+curl http://localhost:6300/health   # should return {"status":"ok", ...}
 ```
 
-### 3. Compile the contract *(optional, `managed/` is already committed)*
+### 3. (Optional) Recompile the contract
+
+The compiled output is already committed, so skip this unless you've changed the contract source.
 
 ```bash
-npm run compile      # compact compile +0.31.1 for both contracts
+npm run compile
 ```
 
 ### 4. Build
 
 ```bash
-npm run build        # contract -> dist, api -> dist
+npm run build
 ```
 
-### 5. Test
+Builds `contract → dist` and `api → dist`.
+
+### 5. Run tests
 
 ```bash
-npm run test:all     # everything: 10 contract tests + 48 api tests + the e2e trace
+npm run test:all    # 10 contract tests + 41 api tests + the e2e trace
 ```
 
-See [`testing/README.md`](testing/README.md) for what each layer proves and how to run them
-individually.
+See [`testing/README.md`](testing/README.md) for what each layer tests and how to run them individually.
 
 ### 6. Run the app
 
 ```bash
-npm run dev          # http://localhost:3000
+npm run dev
+# Open http://localhost:3000
 ```
 
-`npm run dev` first runs `sync:zk`, which copies `contract/managed/truemask` into
-`truemask/apps/web/public/midnight/truemask`. The browser fetches prover keys from there, and the
-layout (`keys/<circuit>.prover`, `zkir/<circuit>.bzkir`) is exactly what `FetchZkConfigProvider`
-expects. That copy is gitignored; `contract/managed/` remains the source of truth.
+`npm run dev` runs `sync:zk` first, which copies `contract/managed/truemask` into `truemask/apps/web/public/midnight/truemask`. The browser fetches prover keys from there. That copy is gitignored — `contract/managed/` is always the source of truth.
 
-### 7. Publishing to Midnight (Preprod)
+---
 
-Everything up to this point, redacting, hashing, verifying, happens without ever talking to a
-network. Publishing is different: it's the one step that actually writes to the Midnight ledger,
-and a write is a real transaction. Something has to sign it, which is what the wallet is for, and
-something has to pay for it, which is what the tDUST below is for. Verifying, further down, is a
-read: it costs nothing and needs nobody's permission.
+## Publishing to Midnight (Preprod)
 
-1. Install **Midnight Lace** and switch it to **Preprod**.
-2. Request **tNIGHT** for your **unshielded** address at
-   <https://faucet.preprod.midnight.network/>. The faucet does not hand out tDUST directly.
-3. **Delegate** that tNIGHT in the wallet to start generating **tDUST**, and give it a minute or
-   two to accrue. tDUST is what actually pays the fee.
-4. Start the proof server (`npm run proof-server`). Proving stays on your machine even on a public
-   network, which is what keeps the original image local.
-5. `npm run dev`, protect an image, then press **Publish to Midnight** on the record screen.
-6. The first publish **deploys** the contract and shows its address. Copy it into
-   `NEXT_PUBLIC_CONTRACT_ADDRESS` in `truemask/apps/web/.env.local` so later runs join that
-   contract instead of deploying a new one, and so the Verify flow starts confirming records
-   against the chain.
+Everything up to this point — detecting, redacting, hashing, verifying offline — happens with no network connection at all. Publishing is the one step that writes to the Midnight ledger.
 
-See `truemask/apps/web/.env.example` for every setting.
+1. Install **[Midnight Lace](https://midnight.network/lace)** and switch it to **Preprod** (or use **[1AM](https://1am.xyz)** — the app supports any wallet that implements the Midnight DApp Connector API).
+2. Request **tNIGHT** for your *unshielded* address at <https://faucet.preprod.midnight.network/>. The faucet does not hand out tDUST directly.
+3. **Delegate** that tNIGHT in the wallet to start generating **tDUST**. Give it a minute or two to accrue. tDUST is what actually pays the transaction fee.
+4. Start the proof server: `npm run proof-server`. Proving runs locally even on a public network — this is what keeps the original image on your machine.
+5. Run `npm run dev`, protect an image, and press **Publish to Midnight** on the record screen.
+6. The **first** publish deploys the contract and shows its address. Copy it into `NEXT_PUBLIC_CONTRACT_ADDRESS` in `truemask/apps/web/.env.local`. Future runs will join that contract instead of deploying a new one, and the Verify flow will confirm records against the chain.
 
-**Verifying never needs any of this.** It is a read: no wallet, no signing, no cost, no setup. With
-a contract address configured it also confirms the record against Midnight; without one it
-verifies offline and says so.
+See `truemask/apps/web/.env.example` for all available settings.
+
+> **Verifying never needs any of this.** It is a read-only operation — no wallet, no fee, no setup required. With a contract address configured, it confirms the record against Midnight; without one, it verifies offline and tells you so.
+
+---
+
+## AI models
+
+| Detector | Library | What it finds | Runs where |
+|---|---|---|---|
+| Face detection | [`@vladmandic/human`](https://github.com/vladmandic/human) | Human faces — tight bounding box over facial features only | Browser (WebGL / WASM) |
+| Text / OCR | [`tesseract.js`](https://github.com/naptha/tesseract.js) | Text on signs, number plates, ID badges, documents | Browser (WASM) |
+
+Both models run entirely in the browser — no image data is ever sent to an external server. The face model automatically falls back from WebGL to WebAssembly if the browser doesn't support WebGL. On first use, both models download their weight files (~20 MB total); subsequent runs use the browser cache.
+
+**What is not detected automatically:** Generic accessories such as unique jewellery, tattoos, or clothing patterns. These can be added manually using the region-drawing tool in the Review step.
+
+---
 
 ## Known gaps
 
-No project this size ships finished. Here's what's still rough, and why it isn't a bigger deal
-than it sounds.
+No project this size ships complete. Here is what is still rough and why.
 
-1. **Publishing was tested end to end against real Preprod infrastructure, and it hit a
-   network-wide issue, not a bug in this code.** A funded Lace wallet, a real faucet-funded tNIGHT
-   balance registered for tDUST generation, and a real "Generate tDUST" transaction all worked
-   right up to the point of proof generation and submission, where it hung indefinitely with no
-   error. We ruled out our own stack: Docker logs were clean, our local proof server was confirmed
-   healthy, and we tried both "Local" and "Remote" proof server modes, a fresh wallet, and a second
-   Preprod RPC provider. The symptom matches, detail for detail, a failure that another team at
-   this same hackathon documented publicly: every HTTP endpoint (node, indexer, proof server)
-   healthy, only the RPC **WebSocket** rejecting connections. It's a Preprod-wide reliability
-   issue, not something tied to this project or to which wallet is talking to it.
+### 1. Preprod network reliability
 
-   Because a hang like that can freeze a UI mid-demo with no way out, `publishRecord()` now bounds
-   every wallet call with a timeout (20 seconds to connect, 60 to publish) and offers a **Cancel**
-   button, so a stuck attempt turns into a clear message instead of an unresponsive spinner. That
-   message says plainly that the image is already fully protected and verifiable offline, whether
-   or not the on-chain write ever completes. Wallet detection isn't locked to Lace either:
-   `useMidnight.ts` looks for any wallet implementing the Midnight DApp Connector API (Lace or
-   [1AM](https://1am.xyz)), in case one fares better against Preprod's WebSocket than the other.
-2. **No devnet.** See step 7 above.
-3. **Detection quality has no unit tests.** Face detection runs on
-   [Human](https://github.com/vladmandic/human) (`@vladmandic/human`, faces only; body, hand, and
-   object tracking are explicitly disabled to cut down on false positives), and text and sign
-   detection runs on Tesseract OCR. Both are browser-only (WebAssembly, a canvas), so neither can
-   run in this Node-based test suite. Everything downstream of a detection, from a bounding box
-   onward, is fully covered by the vision-pipeline tests; the detectors themselves were checked by
-   hand in a real browser instead. There is **no licence-plate detector**; plates are covered
-   incidentally, by OCR reading the characters on them as text.
-4. **Large photos are slow.** Hashing is proportional to pixel count and runs on the main thread:
+Publishing was tested end-to-end against real Preprod infrastructure and ran into a network-wide issue — not a bug in this code. A funded wallet, faucet-funded tNIGHT, and tDUST generation all worked right up to proof submission, where it hung indefinitely with no error. We ruled out our own stack: Docker logs were clean, the local proof server was healthy, and we tried multiple configurations. The symptom matches a failure that another hackathon team documented publicly — every HTTP endpoint healthy, only the RPC **WebSocket** rejecting connections.
 
-   | image | blocks | `redactImage` total |
-   |---|---|---|
-   | 640x480 | 1,200 | ~0.5 s |
-   | 1920x1080 | 8,160 | ~2.0 s |
-   | 4032x3024 (12 MP) | 47,628 | ~8.6 s |
+Because a hanging connection would freeze the UI, `publishRecord()` now bounds every wallet call with a timeout (20 s to connect, 60 s to publish) and shows a **Cancel** button. A stuck attempt turns into a clear error message rather than an unresponsive spinner.
 
-   Blocks are hashed in batches and the loop yields between them, so the tab stays responsive and a
-   progress percentage is shown, but a 12 MP upload still takes several seconds. Moving the
-   pipeline into a Web Worker is the fix; it was not needed for the demo.
+### 2. No local devnet
 
-## Check which checkout you are running
+The wallet flow requires a running Midnight node + indexer + proof server. See [Publishing to Midnight](#publishing-to-midnight-preprod) above.
 
-One practical note, since it's bitten us before mid-session: in development, the page prints the
-serving directory in the bottom-left corner. A stale `next dev` from an unrelated copy of this
-project once held `:3000` for hours, and its hardcoded demo detections were mistaken for broken
-detector output. If that badge does not say `.../TrueMask/truemask/apps/web`, you are looking at a
-different project:
+### 3. Detection has no automated tests
 
+Both detectors (Human AI and Tesseract) are browser-only (WebAssembly + canvas) and cannot run in this Node-based test suite. Everything *downstream* of a detection — bounding boxes, block mapping, hashing, redaction — is fully covered by the vision-pipeline tests. The detectors themselves were validated by hand in a real browser with representative images.
+
+### 4. Large photos are slow to hash
+
+Hashing is proportional to pixel count. Rough timings on a mid-range laptop:
+
+| Image size | Blocks | Time |
+|---|---|---|
+| 640 × 480 | ~1,200 | ~0.5 s |
+| 1920 × 1080 | ~8,100 | ~2.0 s |
+| 4032 × 3024 (12 MP) | ~47,600 | ~8.6 s |
+
+The loop yields between batches so the tab stays responsive and a progress percentage is shown, but large uploads still take several seconds.
+
+---
+
+## Troubleshooting
+
+**The app shows a blank screen or crashes on startup**
+Run `npm run build` first. The `api` package must be compiled before the web app can import it.
+
+**Port 3000 is already in use**
 ```bash
-ss -ltnp | grep :3000     # find what owns the port
-pkill -f next-server      # then: npm run dev, from this repo
+ss -ltnp | grep :3000   # find what owns the port
+pkill -f next-server     # stop it, then re-run npm run dev
 ```
+
+**"Could not decode the selected image"**
+The file is either corrupted or in an unsupported format. Use a real JPEG or PNG file.
+
+**Faces are not being detected**
+On the first scan, the AI model downloads ~20 MB of weight files from the CDN. The UI shows a "Loading AI model" indicator during this phase. If detection still fails after loading, try a higher-resolution image — the detector needs at least ~15 pixels of face area to fire.
+
+**The proof server health check fails**
+Make sure Docker is running: `docker info`. Then re-run `npm run proof-server`.
+
+---
+
+## License
+
+MIT — [Webisoft Development Labs](https://webisoft.com)

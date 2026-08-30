@@ -501,35 +501,29 @@ export default function TrueMaskApp() {
     checkedHash === verificationId.trim().toLowerCase().replace(/^0x/, "");
 
   return (
-    <main className="min-h-screen px-5 py-6 md:px-10">
-      <header className="mx-auto flex w-full max-w-7xl items-center justify-between">
-        <button onClick={resetApp} className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5">
-            <ShieldCheck size={20} />
+    <main className="min-h-screen px-4 py-5 md:px-10">
+      <header className="mx-auto flex w-full max-w-7xl items-center justify-between gap-2">
+        <button onClick={resetApp} className="flex items-center gap-2 shrink-0">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5">
+            <ShieldCheck size={18} />
           </div>
 
           <div className="text-left">
-            <div className="text-lg font-bold tracking-tight">TrueMask</div>
-            <div className="text-xs text-white/45">Privacy with proof</div>
+            <div className="text-base font-bold tracking-tight">TrueMask</div>
+            <div className="hidden text-xs text-white/45 sm:block">Privacy with proof</div>
           </div>
         </button>
 
-        <div className="flex items-center gap-4">
-          {/*
-            Only offered when a Midnight wallet is actually installed. Redaction
-            and the integrity commitments are entirely local; the wallet is only
-            needed to publish the record on-chain. Showing a dead "Connect"
-            button to everyone else just implies the app is broken without one.
-          */}
+        <div className="flex items-center gap-2 md:gap-4">
           {address ? (
-            <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-2 text-sm text-green-400">
-              Connected: {address.slice(0, 8)}...
+            <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-1.5 text-xs text-green-400 md:px-4 md:py-2 md:text-sm">
+              <span className="hidden sm:inline">Connected: </span>{address.slice(0, 6)}…
             </div>
           ) : isWalletAvailable ? (
             <button
               onClick={connect}
               disabled={isConnecting}
-              className="rounded-lg border border-white/10 px-4 py-2 text-sm text-white/70 transition hover:bg-white/5 disabled:opacity-50"
+              className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/70 transition hover:bg-white/5 disabled:opacity-50 md:px-4 md:py-2 md:text-sm"
             >
               {isConnecting ? "Connecting..." : "Connect wallet"}
             </button>
@@ -537,7 +531,7 @@ export default function TrueMaskApp() {
           {step !== "upload" && (
             <button
               onClick={resetApp}
-              className="rounded-lg border border-white/10 px-4 py-2 text-sm text-white/70 transition hover:bg-white/5"
+              className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/70 transition hover:bg-white/5 md:px-4 md:py-2 md:text-sm"
             >
               New image
             </button>
@@ -545,7 +539,7 @@ export default function TrueMaskApp() {
         </div>
       </header>
 
-      <section className="mx-auto mt-10 max-w-4xl">
+      <section className="mx-auto mt-8 max-w-4xl md:mt-10">
         {mode && (
           <div className="mb-10 flex items-center justify-between gap-2">
             {steps.map((item, index) => {
@@ -706,23 +700,23 @@ function UploadScreen({
   onSelectMode: (mode: AppMode) => void;
 }) {
   return (
-    <div className="mx-auto max-w-3xl pt-10 text-center">
+    <div className="mx-auto max-w-3xl px-1 pt-8 text-center md:pt-10">
       <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
         <Lock size={24} />
       </div>
 
-      <h1 className="text-4xl font-semibold tracking-tight md:text-6xl">
+      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl md:text-6xl">
         Protect sensitive information.
         <br />
         Prove what stayed unchanged.
       </h1>
 
-      <p className="mx-auto mt-6 max-w-xl text-base leading-7 text-white/50">
+      <p className="mx-auto mt-5 max-w-xl text-sm leading-7 text-white/50 md:mt-6 md:text-base">
         Upload a photograph. Identify sensitive regions. Create a protected
         version with a verifiable integrity record.
       </p>
 
-      <div className="mt-10 grid gap-4 md:grid-cols-2">
+      <div className="mt-8 grid gap-4 sm:grid-cols-2 md:mt-10">
         <PathCard
           icon={<ShieldCheck size={20} />}
           title="Protect an image"
@@ -760,7 +754,7 @@ function UploadScreen({
               onFile(droppedFile);
             }
           }}
-          className={`mt-6 rounded-3xl border border-dashed p-12 transition ${
+          className={`mt-6 rounded-3xl border border-dashed p-8 transition md:p-12 ${
             isDragging
               ? "border-white bg-white/10"
               : "border-white/15 bg-white/[0.03]"
@@ -1034,7 +1028,7 @@ function ReviewScreen({
             Exposure risk map
           </div>
 
-          <h1 className="mt-2 text-3xl font-semibold">
+          <h1 className="mt-2 text-2xl font-semibold md:text-3xl">
             Review sensitive regions
           </h1>
           <p className="mt-1 text-xs text-white/40">
@@ -1054,7 +1048,7 @@ function ReviewScreen({
             ref={imgRef}
             src={imageUrl}
             alt="Detection preview"
-            className="max-h-[620px] w-full object-contain pointer-events-none"
+            className="max-h-[400px] w-full object-contain pointer-events-none md:max-h-[620px]"
             onDragStart={(e) => e.preventDefault()}
           />
 
