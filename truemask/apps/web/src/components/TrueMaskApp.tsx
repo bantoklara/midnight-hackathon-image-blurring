@@ -59,20 +59,23 @@ const VERIFY_STEPS: StepDefinition[] = [
   { id: "verifyResult", label: "Result" },
 ];
 
-
-
 import { useMidnight } from "@/hooks/useMidnight";
 
 /**
  * The pipeline works in pixels; the UI positions overlays in percentages.
  * These two helpers are the only place the two coordinate systems meet.
  */
-function toUiDetection(item: PixelDetection, index: number, image: ImageData): Detection {
+function toUiDetection(
+  item: PixelDetection,
+  index: number,
+  image: ImageData,
+): Detection {
   const type: Detection["type"] = item.kind === "face" ? "face" : "text";
   return {
     id: `${item.kind}-${index}`,
     type,
-    label: item.kind === "face" ? "Face" : item.text ? `Text: ${item.text}` : "Text",
+    label:
+      item.kind === "face" ? "Face" : item.text ? `Text: ${item.text}` : "Text",
     risk: item.kind === "face" ? "critical" : "high",
     x: (item.box.x / image.width) * 100,
     y: (item.box.y / image.height) * 100,
@@ -98,10 +101,11 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
   };
 }
 
-  export default function TrueMaskApp() {
+export default function TrueMaskApp() {
   const inputRef = useRef<HTMLInputElement>(null);
-  
-  const { address, isConnecting, connect, isWalletAvailable, getApi } = useMidnight();
+
+  const { address, isConnecting, connect, isWalletAvailable, getApi } =
+    useMidnight();
 
   const [step, setStep] = useState<AppStep>("upload");
   /** null until the user picks a path on the landing screen. */
@@ -109,6 +113,7 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
   const [file, setFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [detections, setDetections] = useState<Detection[]>([]);
+  const [manualDetections, setManualDetections] = useState<Detection[]>([]);
   const [originalHash, setOriginalHash] = useState("");
   const [protectedHash, setProtectedHash] = useState("");
   const [isDragging, setIsDragging] = useState(false);
@@ -124,9 +129,10 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
   const steps = mode === "verify" ? VERIFY_STEPS : PROTECT_STEPS;
   const currentStepIndex = steps.findIndex((item) => item.id === step);
 
+  const allDetections = [...detections, ...manualDetections];
   const selectedDetections = useMemo(
-    () => detections.filter((item) => item.selected),
-    [detections],
+    () => allDetections.filter((item) => item.selected),
+    [allDetections],
   );
 
   async function handleFile(selectedFile: File) {
@@ -176,10 +182,12 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
 
       const found: PixelDetection[] = [
         ...(faces.status === "fulfilled" ? faces.value : []),
-        // Drop word boxes smaller than a block — on a photo these are mostly
-        // noise (logos, menu fragments) rather than location-revealing text.
+        // Filter text more aggressively: require minimum 24x12 px (1.5x the block size)
+        // to reduce noise from logos, icons, and artifacts while keeping readable text
         ...(text.status === "fulfilled"
-          ? text.value.filter((item) => item.box.width >= 16 && item.box.height >= 8)
+          ? text.value.filter(
+              (item) => item.box.width >= 24 && item.box.height >= 12,
+            )
           : []),
       ];
 
@@ -187,18 +195,28 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
         faces.status === "rejected" ? "face detection" : null,
         text.status === "rejected" ? "text detection" : null,
       ].filter(Boolean);
-      if (faces.status === "rejected") console.error("Face detection failed:", faces.reason);
-      if (text.status === "rejected") console.error("Text detection failed:", text.reason);
+      if (faces.status === "rejected")
+        console.error("Face detection failed:", faces.reason);
+      if (text.status === "rejected")
+        console.error("Text detection failed:", text.reason);
 
-      setStatus(
-        failures.length
-          ? `${failures.join(" and ")} unavailable — showing ${found.length} region(s) from the rest. Add any missed area by hand before protecting.`
-          : found.length
-            ? null
-            : "No faces or text detected. Nothing will be redacted unless you add a region.",
+      const faceCount = found.filter((d) => d.kind === "face").length;
+      const textCount = found.filter((d) => d.kind === "text").length;
+
+      let statusMessage = "";
+      if (failures.length) {
+        statusMessage = `⚠️ ${failures.join(" and ")} unavailable — showing ${found.length} region(s) from the rest. Add any missed area by hand before protecting.`;
+      } else if (found.length === 0) {
+        statusMessage =
+          "ℹ️ No faces or text detected. Carefully review the image and manually add any sensitive areas before protecting.";
+      } else {
+        statusMessage = `✓ Detected ${faceCount} face(s) and ${textCount} text region(s). Review and adjust before protecting.`;
+      }
+
+      setStatus(statusMessage);
+      setDetections(
+        found.map((item, index) => toUiDetection(item, index, image)),
       );
-
-      setDetections(found.map((item, index) => toUiDetection(item, index, image)));
       setStep("review");
     } catch (err) {
       console.error("Scan failed:", err);
@@ -209,16 +227,27 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
   }
 
   function toggleDetection(id: string) {
-    setDetections((current) =>
-      current.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              selected: !item.selected,
-            }
-          : item,
-      ),
-    );
+    // Check if it's a detected region or manual region
+    const inDetected = detections.some((d) => d.id === id);
+
+    if (inDetected) {
+      setDetections((current) =>
+        current.map((item) =>
+          item.id === id ? { ...item, selected: !item.selected } : item,
+        ),
+      );
+    } else {
+      setManualDetections((current) =>
+        current.map((item) =>
+          item.id === id ? { ...item, selected: !item.selected } : item,
+        ),
+      );
+    }
+  }
+
+  function removeDetection(id: string) {
+    // Remove from manual detections
+    setManualDetections((current) => current.filter((item) => item.id !== id));
   }
 
   async function protectImage() {
@@ -233,30 +262,43 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
       // preserved root, the bitmap commitment and the blacked-out pixels.
       // Blackout, not blur: blur and pixelation are reversible enough to attack,
       // and this exists to protect sources.
-      const totalBlocks = Math.ceil(image.width / 16) * Math.ceil(image.height / 16);
+      const totalBlocks =
+        Math.ceil(image.width / 16) * Math.ceil(image.height / 16);
       setStatus(`Hashing ${totalBlocks.toLocaleString()} blocks…`);
-      const redaction = await new Promise<vision.RedactionResult>((resolve, reject) => {
-        const worker = new Worker(new URL('../workers/redact.worker.ts', import.meta.url));
-        worker.onerror = (err) => {
-          worker.terminate();
-          reject(new Error("Worker error: " + (err.message || "failed to load script")));
-        };
-        worker.onmessage = (e) => {
-          if (e.data.type === "progress") {
-            setStatus(`Hashing blocks… ${Math.round((e.data.done / e.data.total) * 100)}%`);
-          } else if (e.data.type === "done") {
+      const redaction = await new Promise<vision.RedactionResult>(
+        (resolve, reject) => {
+          const worker = new Worker(
+            new URL("../workers/redact.worker.ts", import.meta.url),
+          );
+          worker.onerror = (err) => {
             worker.terminate();
-            resolve(e.data.redaction);
-          } else if (e.data.type === "error") {
-            worker.terminate();
-            reject(new Error(e.data.error));
-          }
-        };
-        worker.postMessage({
-          image,
-          detections: selectedDetections.map((item) => toPixelDetection(item, image))
-        });
-      });
+            reject(
+              new Error(
+                "Worker error: " + (err.message || "failed to load script"),
+              ),
+            );
+          };
+          worker.onmessage = (e) => {
+            if (e.data.type === "progress") {
+              setStatus(
+                `Hashing blocks… ${Math.round((e.data.done / e.data.total) * 100)}%`,
+              );
+            } else if (e.data.type === "done") {
+              worker.terminate();
+              resolve(e.data.redaction);
+            } else if (e.data.type === "error") {
+              worker.terminate();
+              reject(new Error(e.data.error));
+            }
+          };
+          worker.postMessage({
+            image,
+            detections: selectedDetections.map((item) =>
+              toPixelDetection(item, image),
+            ),
+          });
+        },
+      );
 
       // PNG, never JPEG. JPEG re-quantises every block, which changes bytes
       // outside the redacted regions and breaks the proof for everyone.
@@ -317,6 +359,7 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
     setRedactedUrl(null);
     setStatus(null);
     setDetections([]);
+    setManualDetections([]);
     setMode(null);
     setCheckedHash("");
     setVerificationId("");
@@ -381,41 +424,41 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
 
       <section className="mx-auto mt-10 max-w-4xl">
         {mode && (
-        <div className="mb-10 flex items-center justify-between gap-2">
-          {steps.map((item, index) => {
-            const active = index <= currentStepIndex;
+          <div className="mb-10 flex items-center justify-between gap-2">
+            {steps.map((item, index) => {
+              const active = index <= currentStepIndex;
 
-            return (
-              <div key={item.id} className="flex flex-1 items-center gap-2">
-                <div
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs ${
-                    active
-                      ? "border-white bg-white text-black"
-                      : "border-white/10 text-white/30"
-                  }`}
-                >
-                  {index < currentStepIndex ? <Check size={14} /> : index + 1}
-                </div>
-
-                <span
-                  className={`hidden text-xs md:block ${
-                    active ? "text-white" : "text-white/30"
-                  }`}
-                >
-                  {item.label}
-                </span>
-
-                {index < steps.length - 1 && (
+              return (
+                <div key={item.id} className="flex flex-1 items-center gap-2">
                   <div
-                    className={`h-px flex-1 ${
-                      index < currentStepIndex ? "bg-white/70" : "bg-white/10"
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs ${
+                      active
+                        ? "border-white bg-white text-black"
+                        : "border-white/10 text-white/30"
                     }`}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
+                  >
+                    {index < currentStepIndex ? <Check size={14} /> : index + 1}
+                  </div>
+
+                  <span
+                    className={`hidden text-xs md:block ${
+                      active ? "text-white" : "text-white/30"
+                    }`}
+                  >
+                    {item.label}
+                  </span>
+
+                  {index < steps.length - 1 && (
+                    <div
+                      className={`h-px flex-1 ${
+                        index < currentStepIndex ? "bg-white/70" : "bg-white/10"
+                      }`}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
 
         {status && (
@@ -460,8 +503,15 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
         {step === "review" && imageUrl && (
           <ReviewScreen
             imageUrl={imageUrl}
-            detections={detections}
+            detections={allDetections}
             toggleDetection={toggleDetection}
+            onAddManual={(detection) => {
+              setManualDetections((current) => [
+                ...current,
+                { ...detection, selected: true },
+              ]);
+            }}
+            onRemoveManual={removeDetection}
             onContinue={protectImage}
           />
         )}
@@ -751,13 +801,84 @@ function ReviewScreen({
   imageUrl,
   detections,
   toggleDetection,
+  onAddManual,
+  onRemoveManual,
   onContinue,
 }: {
   imageUrl: string;
   detections: Detection[];
   toggleDetection: (id: string) => void;
+  onAddManual: (detection: Detection) => void;
+  onRemoveManual: (id: string) => void;
   onContinue: () => void;
 }) {
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [drawCurrent, setDrawCurrent] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!imgRef.current) return;
+    const rect = imgRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    setDrawStart({ x, y });
+    setDrawCurrent({ x, y });
+    setIsDrawing(true);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDrawing || !imgRef.current) return;
+    e.preventDefault();
+    const rect = imgRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    setDrawCurrent({ x, y });
+  };
+
+  const handleMouseUp = () => {
+    if (!isDrawing || !drawStart || !drawCurrent) {
+      setIsDrawing(false);
+      return;
+    }
+
+    const minWidth = 2;
+    const minHeight = 2;
+
+    const x = Math.min(drawStart.x, drawCurrent.x);
+    const y = Math.min(drawStart.y, drawCurrent.y);
+    const width = Math.abs(drawCurrent.x - drawStart.x);
+    const height = Math.abs(drawCurrent.y - drawStart.y);
+
+    if (width >= minWidth && height >= minHeight) {
+      const newDetection: Detection = {
+        id: `manual-${Date.now()}`,
+        type: "face",
+        label: "Manual region",
+        risk: "high",
+        x,
+        y,
+        width,
+        height,
+        selected: true,
+      };
+      onAddManual(newDetection);
+    }
+
+    setIsDrawing(false);
+    setDrawStart(null);
+    setDrawCurrent(null);
+  };
+
+  const manualDetections = detections.filter((d) => d.id.startsWith("manual-"));
+
   return (
     <div className="grid gap-6 lg:grid-cols-[1.4fr_0.8fr]">
       <div>
@@ -770,44 +891,81 @@ function ReviewScreen({
           <h1 className="mt-2 text-3xl font-semibold">
             Review sensitive regions
           </h1>
+          <p className="mt-1 text-xs text-white/40">
+            Click and drag to manually add regions
+          </p>
         </div>
 
-        <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-black">
+        <div
+          className="relative overflow-hidden rounded-3xl border border-white/10 bg-black cursor-crosshair select-none"
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          style={{ userSelect: "none" }}
+        >
           <img
+            ref={imgRef}
             src={imageUrl}
             alt="Detection preview"
-            className="max-h-[620px] w-full object-contain"
+            className="max-h-[620px] w-full object-contain pointer-events-none"
+            onDragStart={(e) => e.preventDefault()}
           />
 
           {detections.map((item) => (
-            <button
+            <div
               key={item.id}
-              onClick={() => toggleDetection(item.id)}
+              className="absolute"
               style={{
                 left: `${item.x}%`,
                 top: `${item.y}%`,
                 width: `${item.width}%`,
                 height: `${item.height}%`,
               }}
-              className={`absolute rounded-lg border-2 transition ${
-                item.selected
-                  ? "border-white bg-white/10"
-                  : "border-white/20 bg-black/20 opacity-50"
-              }`}
-              aria-label={`Toggle ${item.label}`}
             >
-              <span className="absolute -top-7 left-0 whitespace-nowrap rounded-md bg-black px-2 py-1 text-[10px] text-white">
-                {item.label}
-              </span>
-            </button>
+              <button
+                onClick={() => toggleDetection(item.id)}
+                className={`w-full h-full rounded-lg border-2 transition pointer-events-auto ${
+                  item.selected
+                    ? "border-yellow-400 bg-yellow-400/20 shadow-lg shadow-yellow-400/50"
+                    : "border-orange-400 bg-orange-400/10 opacity-75 shadow-md shadow-orange-400/30"
+                }`}
+                aria-label={`Toggle ${item.label}`}
+              >
+                <span className="absolute -top-7 left-0 whitespace-nowrap rounded-md bg-black/90 px-2 py-1 text-[10px] text-white font-semibold border border-yellow-400/50">
+                  {item.label}
+                </span>
+              </button>
+              {item.id.startsWith("manual-") && (
+                <div
+                  onClick={() => onRemoveManual(item.id)}
+                  className="absolute -top-2 -right-2 rounded-full bg-red-500 hover:bg-red-600 p-1 cursor-pointer"
+                  title="Remove this region"
+                >
+                  <X size={12} className="text-white" />
+                </div>
+              )}
+            </div>
           ))}
+
+          {isDrawing && drawStart && drawCurrent && (
+            <div
+              style={{
+                left: `${Math.min(drawStart.x, drawCurrent.x)}%`,
+                top: `${Math.min(drawStart.y, drawCurrent.y)}%`,
+                width: `${Math.abs(drawCurrent.x - drawStart.x)}%`,
+                height: `${Math.abs(drawCurrent.y - drawStart.y)}%`,
+              }}
+              className="absolute border-2 border-yellow-400 bg-yellow-400/20 rounded-lg pointer-events-none"
+            />
+          )}
         </div>
       </div>
 
       <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-        <div className="text-sm text-white/45">AI findings</div>
+        <div className="text-sm text-white/45">AI findings & Manual</div>
 
-        <div className="mt-5 space-y-3">
+        <div className="mt-5 space-y-3 max-h-[500px] overflow-y-auto">
           {detections.map((item) => (
             <button
               key={item.id}
@@ -819,16 +977,33 @@ function ReviewScreen({
               }`}
             >
               <div className="flex items-center justify-between">
-                <span className="font-medium">{item.label}</span>
+                <span className="font-medium">
+                  {item.label}
+                  {item.id.startsWith("manual-") && " (manual)"}
+                </span>
 
-                <div
-                  className={`flex h-5 w-5 items-center justify-center rounded-full border ${
-                    item.selected
-                      ? "border-white bg-white text-black"
-                      : "border-white/20"
-                  }`}
-                >
-                  {item.selected && <Check size={12} />}
+                <div className="flex items-center gap-2">
+                  {item.id.startsWith("manual-") && (
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRemoveManual(item.id);
+                      }}
+                      className="text-red-400 hover:text-red-300 cursor-pointer"
+                      title="Delete region"
+                    >
+                      <X size={14} />
+                    </div>
+                  )}
+                  <div
+                    className={`flex h-5 w-5 items-center justify-center rounded-full border ${
+                      item.selected
+                        ? "border-white bg-white text-black"
+                        : "border-white/20"
+                    }`}
+                  >
+                    {item.selected && <Check size={12} />}
+                  </div>
                 </div>
               </div>
 
@@ -1115,7 +1290,9 @@ function VerifyResultScreen({
         )}
 
         <h1 className="text-3xl font-semibold md:text-4xl">
-          {passed ? "This image matches the record" : "This image does not match"}
+          {passed
+            ? "This image matches the record"
+            : "This image does not match"}
         </h1>
 
         <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-white/45">

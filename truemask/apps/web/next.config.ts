@@ -10,6 +10,16 @@ const nextConfig: NextConfig = {
   // pre-bundled externals.
   transpilePackages: ["truemask-api", "leaderboard-contract"],
 
+  // Image optimization for better performance
+  images: {
+    unoptimized: true, // Since we're handling images as data, disable next/image optimization
+  },
+
+  // Performance improvements
+  poweredByHeader: false,
+  compress: true,
+  productionBrowserSourceMaps: false,
+
   turbopack: {
     resolveAlias: {
       // See src/shims/isomorphic-ws.ts — the upstream browser build has no
