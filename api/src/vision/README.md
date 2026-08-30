@@ -84,10 +84,55 @@ retained for cosmetic use and the UI must say it is not secure. **`blackout` is 
 
 ## Setup note — models
 
-`detectFaces()` pulls the MediaPipe WASM bundle and the BlazeFace short-range model from a CDN by
-default. For an offline or air-gapped build, host both locally and pass `wasmBasePath` and
+### Use the FULL-RANGE face model, and keep the WASM version in step
+
+Measured in a real browser on a 1920x1440 café photo:
+
+| model | WASM | faces found |
+|---|---|---|
+| `blaze_face_short_range` | 0.10.3 or 1.0.1 | **0** |
+| `blaze_face_full_range` | 0.10.3 | **fails** — `CalculatorGraph::Run() failed` |
+| `blaze_face_full_range` | 1.0.1 (matching) | works |
+
+Short-range BlazeFace resizes its input to 128x128, so a face occupying ~9% of a wide photo is ~12px
+and below what the model can resolve. It is built for a face filling the frame. **Do not switch back
+to it**, and do not let the WASM bundle version drift from the installed `@mediapipe/tasks-vision` —
+the full-range model simply errors against the older runtime. `MEDIAPIPE_VERSION` in
+`face-detection.ts` pins both together.
+
+### Detection is tiled
+
+`detectFaces()` runs on the whole frame *and* on 2x2 overlapping tiles, merging the results with
+non-maximum suppression. On the same photo this went from 1 face (whole frame) to 4 raw detections,
+and 3 -> 10 findings once the confidence floor was set appropriately. Small distant faces in a wide
+shot — a crowd, a street, a café — are precisely the journalist's case, and a single whole-frame pass
+misses them. 4x4 tiling was measured to be *worse* than 2x2: faces start landing on tile seams.
+
+The confidence floor defaults to **0.2**, deliberately permissive. A missed face exposes a source; a
+false positive only blacks out extra pixels the journalist can deselect in the review step.
+
+`detectFaces()` pulls the MediaPipe WASM bundle and the model from a CDN by default. For an offline or air-gapped build, host both locally and pass `wasmBasePath` and
 `modelAssetPath`. `detectText()` downloads Tesseract language data on first use.
+
+There is **no licence-plate detector**. That category only ever existed as a hardcoded demo value in
+the UI and has been removed; plates are covered incidentally when OCR reads the characters on them.
+
+The UI runs the two detectors with `Promise.allSettled` rather than awaiting them together —
+Tesseract is the more fragile of the two, and a failure there must not discard good face detections.
 
 Both detectors are **browser-only** — they need WebAssembly, and OCR needs a canvas. Calling them
 from Node throws with an actionable message. To run the pipeline headlessly, pass detections in via
 `redactImage(image, { manualDetections })`, which is what `scripts/e2e-truemask.mjs` does.
+
+## Performance
+
+Hashing is proportional to pixel count: ~1,200 blocks for a 640x480 image, ~47,600 for a 12 MP phone
+photo, and `redactImage()` hashes twice (original and published). Measured end to end: ~0.5 s, ~2.0 s
+and ~8.6 s respectively.
+
+`computeLaneDigests` hashes in batches of 256 instead of awaiting one block at a time, which roughly
+halved the cost, and yields to the event loop between batches whenever `onProgress` is supplied so a
+browser tab keeps painting. **The batching changes scheduling only** — leaves still enter their lane
+in ascending block order, so the bytes hashed are identical, and the hash-agreement test proves it.
+
+For genuinely large images the real fix is moving the pipeline into a Web Worker.

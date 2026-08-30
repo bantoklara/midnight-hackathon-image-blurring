@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Hides Next's floating "N" dev-tools bubble. It is Next's own overlay, not
+  // part of TrueMask, and it sits on top of the UI while demoing.
+  devIndicators: false,
+
   // `contract` and `api` are sibling workspaces shipped as TypeScript-built ESM.
   // Next has to run them through its own pipeline rather than treating them as
   // pre-bundled externals.
