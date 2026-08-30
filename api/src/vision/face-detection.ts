@@ -12,15 +12,14 @@ async function getHuman() {
     filter: { enabled: true, equalization: false },
     face: {
       enabled: true,
-      detector: { rotation: false, maxDetected: 100, iouThreshold: 0.2, minConfidence: 0.2 },
+      detector: { rotation: false, maxDetected: 100, iouThreshold: 0.1, minConfidence: 0.5 },
       mesh: { enabled: false },
       iris: { enabled: false },
       description: { enabled: false },
       emotion: { enabled: false }
     },
     body: {
-      enabled: true, // Detects full people to redact bodies if necessary
-      maxDetected: 100,
+      enabled: false, // Turned off because it generated massive false-positive boxes on crowds
     },
     hand: { enabled: false },
     object: { enabled: false },
@@ -42,16 +41,15 @@ export async function detectFaces(
   image: RgbaImage,
   options: FaceDetectorOptions = {},
 ): Promise<Detection[]> {
-  const minConfidence = options.minConfidence ?? 0.2;
+  // Increased default from 0.2 to 0.5 to stop false-positive hallucinations
+  const minConfidence = options.minConfidence ?? 0.5;
   const human = await getHuman();
   
   const imageData = toImageData(image);
-  // Human.detect supports ImageData natively in the browser.
   const result = await human.detect(imageData);
   
   const found: Detection[] = [];
   
-  // Extract faces
   for (const face of result.face) {
     if (face.score < minConfidence) continue;
     found.push({
@@ -62,21 +60,6 @@ export async function detectFaces(
         y: face.boxRaw[1] * image.height,
         width: face.boxRaw[2] * image.width,
         height: face.boxRaw[3] * image.height,
-      },
-    });
-  }
-
-  // Extract bodies as well (user wanted other sensitive information, like body figures/clothing)
-  for (const body of result.body) {
-    if (body.score < minConfidence) continue;
-    found.push({
-      kind: 'face', // We map it to 'face' here so the UI keeps working without changing TrueMaskApp types.
-      confidence: body.score,
-      box: {
-        x: body.boxRaw[0] * image.width,
-        y: body.boxRaw[1] * image.height,
-        width: body.boxRaw[2] * image.width,
-        height: body.boxRaw[3] * image.height,
       },
     });
   }
