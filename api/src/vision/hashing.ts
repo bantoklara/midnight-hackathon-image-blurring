@@ -37,14 +37,25 @@
 import type { BlockGrid, RgbaImage } from './types.js';
 import { extractBlock } from './block-splitter.js';
 
-/** Circuit vector width. Must equal the Vector<N, Bytes<32>> arity in truemask.compact. */
+/**
+ * PROTOCOL-CRITICAL. Circuit vector width.
+ *
+ * Must equal the `Vector<N, Bytes<32>>` arity in truemask.compact and LANE_COUNT
+ * in contract/src/truemask-constants.ts. Changing it changes every root.
+ */
 export const LANE_COUNT = 16;
 
 const LEAF_DOMAIN = 'truemask:leaf:v1';
 const LANE_DOMAIN = 'truemask:lane:v1';
 const BITMAP_DOMAIN = 'truemask:bitmap:v1';
 
-/** SHA-256 leaf for one block, domain-separated by its index and the grid dimensions. */
+/**
+ * PROTOCOL-CRITICAL. SHA-256 leaf for one block.
+ *
+ * The preimage layout — domain tag, then cols/rows/blockSize/index as big-endian
+ * u32, then the raw block bytes — is part of the protocol. Any reordering,
+ * re-encoding or added field silently invalidates every published record.
+ */
 export async function hashBlock(
   grid: BlockGrid,
   blockIndex: number,
@@ -119,10 +130,12 @@ function yieldToEventLoop(): Promise<void> {
 }
 
 /**
- * Fold lane digests into the 32-byte root.
+ * PROTOCOL-CRITICAL. Fold lane digests into the 32-byte root.
  *
- * Mirrors `compute_preserved_root` in truemask.compact. Kept synchronous and
- * dependency-free on purpose — see the note at the top of this file.
+ * Mirrors `compute_preserved_root` in truemask.compact exactly. The circuit is
+ * the source of truth; this is a WebCrypto mirror kept for speed, and the
+ * "hash agreement" test in api/src/test/integration.test.ts pins the two
+ * together. Never change one without the other.
  */
 export async function foldLaneDigests(laneDigests: Uint8Array[]): Promise<Uint8Array> {
   if (laneDigests.length !== LANE_COUNT) {
