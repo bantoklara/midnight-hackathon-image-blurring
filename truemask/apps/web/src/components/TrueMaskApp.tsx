@@ -1126,16 +1126,6 @@ function PublishPanel({
     );
   }
 
-  // No extension installed: say what to do instead of showing a dead button.
-  if (!isWalletAvailable) {
-    return (
-      <div className="mt-6 rounded-xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white/50">
-        Install the Midnight Lace wallet to publish this record. Your image and
-        its commitment are already protected and verifiable without it.
-      </div>
-    );
-  }
-
   const busy = publish.status === "connecting" || publish.status === "publishing";
   const label =
     publish.status === "connecting"
@@ -1163,6 +1153,13 @@ function PublishPanel({
         </p>
       )}
 
+      {!isWalletAvailable && publish.status === "idle" && (
+        <p className="mt-3 text-center text-xs text-white/30">
+          Needs the Midnight Lace extension. Your image and its commitment are
+          already protected and verifiable without it.
+        </p>
+      )}
+
       {publish.status === "error" && (
         <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white/50">
           {publish.needsFunds ? (
@@ -1179,6 +1176,20 @@ function PublishPanel({
               </a>
               , then delegate it in the wallet to generate tDUST. It takes a
               minute or two to accrue.
+            </>
+          ) : /wallet not found|not installed|extension/i.test(publish.message) ? (
+            <>
+              No Midnight wallet was detected in this browser. Install the
+              Midnight Lace extension and reload the page — setup steps are at{" "}
+              <a
+                href="https://docs.midnight.network"
+                target="_blank"
+                rel="noreferrer"
+                className="text-white underline underline-offset-2"
+              >
+                docs.midnight.network
+              </a>
+              .
             </>
           ) : (
             publish.message
