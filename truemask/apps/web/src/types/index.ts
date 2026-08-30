@@ -1,10 +1,18 @@
+/** Which of the two journeys the user picked on the landing screen. */
+export type AppMode = "protect" | "verify";
+
 export type AppStep =
+  // shared
   | "upload"
+  // protect path: detect, review, redact, commit
   | "scan"
   | "review"
   | "redact"
   | "compare"
-  | "verified";
+  | "verified"
+  // verify path: no detection or redaction happens, so it skips straight to the check
+  | "verifyId"
+  | "verifyResult";
   
 /**
  * There is no licence-plate detector — that category only ever existed as a

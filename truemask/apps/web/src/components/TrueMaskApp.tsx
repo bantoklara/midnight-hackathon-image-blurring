@@ -6,6 +6,7 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
+  Copy,
   Eye,
   FileImage,
   Lock,
@@ -16,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 
-import type { AppStep, Detection } from "@/types";
+import type { AppMode, AppStep, Detection } from "@/types";
 
 import {
   hashFile,
@@ -36,16 +37,26 @@ import { vision } from "truemask-api";
  */
 type PixelDetection = vision.Detection;
 
-const STEPS: {
-  id: AppStep;
-  label: string;
-}[] = [
+type StepDefinition = { id: AppStep; label: string };
+
+const PROTECT_STEPS: StepDefinition[] = [
   { id: "upload", label: "Upload" },
   { id: "scan", label: "Scan" },
   { id: "review", label: "Review" },
   { id: "redact", label: "Protect" },
   { id: "compare", label: "Compare" },
   { id: "verified", label: "Verify" },
+];
+
+/**
+ * Verifying is a much shorter journey: there is nothing to detect and nothing to
+ * redact in an image that has already been published, so the scan, review and
+ * redaction steps do not apply.
+ */
+const VERIFY_STEPS: StepDefinition[] = [
+  { id: "upload", label: "Upload" },
+  { id: "verifyId", label: "Record ID" },
+  { id: "verifyResult", label: "Result" },
 ];
 
 
@@ -93,6 +104,8 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
   const { address, isConnecting, connect, isWalletAvailable, getApi } = useMidnight();
 
   const [step, setStep] = useState<AppStep>("upload");
+  /** null until the user picks a path on the landing screen. */
+  const [mode, setMode] = useState<AppMode | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [detections, setDetections] = useState<Detection[]>([]);
@@ -104,8 +117,12 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
   const sourcePixels = useRef<ImageData | null>(null);
   /** Object URL of the real redacted PNG. This is what the "protected" panels show. */
   const [redactedUrl, setRedactedUrl] = useState<string | null>(null);
+  /** Verify path: SHA-256 of the uploaded published image, and the ID typed in. */
+  const [checkedHash, setCheckedHash] = useState("");
+  const [verificationId, setVerificationId] = useState("");
 
-  const currentStepIndex = STEPS.findIndex((item) => item.id === step);
+  const steps = mode === "verify" ? VERIFY_STEPS : PROTECT_STEPS;
+  const currentStepIndex = steps.findIndex((item) => item.id === step);
 
   const selectedDetections = useMemo(
     () => detections.filter((item) => item.selected),
@@ -122,8 +139,21 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
 
     setFile(selectedFile);
     setImageUrl(url);
-    setStep("scan");
     setDetections([]);
+
+    // Verifying only needs the file's hash — no detection, no redaction.
+    if (mode === "verify") {
+      setStatus(null);
+      try {
+        setCheckedHash(await hashFile(selectedFile));
+        setStep("verifyId");
+      } catch {
+        setStatus("Could not read that image.");
+      }
+      return;
+    }
+
+    setStep("scan");
 
     try {
       const hash = await hashFile(selectedFile);
@@ -272,10 +302,22 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
     setRedactedUrl(null);
     setStatus(null);
     setDetections([]);
+    setMode(null);
+    setCheckedHash("");
+    setVerificationId("");
     setOriginalHash("");
     setProtectedHash("");
     setStep("upload");
   }
+
+  /**
+   * The published image's commitment is the SHA-256 of the exact bytes that were
+   * protected, so re-hashing the file the reader received and comparing is a real
+   * cryptographic check — it needs no wallet and no network.
+   */
+  const verificationPassed =
+    checkedHash.length > 0 &&
+    checkedHash === verificationId.trim().toLowerCase().replace(/^0x/, "");
 
   return (
     <main className="min-h-screen px-5 py-6 md:px-10">
@@ -323,8 +365,9 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
       </header>
 
       <section className="mx-auto mt-10 max-w-4xl">
+        {mode && (
         <div className="mb-10 flex items-center justify-between gap-2">
-          {STEPS.map((item, index) => {
+          {steps.map((item, index) => {
             const active = index <= currentStepIndex;
 
             return (
@@ -347,7 +390,7 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
                   {item.label}
                 </span>
 
-                {index < STEPS.length - 1 && (
+                {index < steps.length - 1 && (
                   <div
                     className={`h-px flex-1 ${
                       index < currentStepIndex ? "bg-white/70" : "bg-white/10"
@@ -358,6 +401,7 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
             );
           })}
         </div>
+        )}
 
         {status && (
           <p className="mx-auto mt-4 max-w-3xl text-center text-sm text-white/50">
@@ -371,6 +415,28 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
             isDragging={isDragging}
             setIsDragging={setIsDragging}
             onFile={handleFile}
+            mode={mode}
+            onSelectMode={setMode}
+          />
+        )}
+
+        {step === "verifyId" && (
+          <VerifyIdScreen
+            imageUrl={imageUrl}
+            verificationId={verificationId}
+            setVerificationId={setVerificationId}
+            onCheck={() => setStep("verifyResult")}
+          />
+        )}
+
+        {step === "verifyResult" && (
+          <VerifyResultScreen
+            imageUrl={imageUrl}
+            passed={verificationPassed}
+            checkedHash={checkedHash}
+            verificationId={verificationId}
+            onBack={() => setStep("verifyId")}
+            onReset={resetApp}
           />
         )}
 
@@ -416,16 +482,29 @@ function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
   );
 }
 
+/**
+ * Landing screen.
+ *
+ * Two journeys start here and they are genuinely different, so the choice comes
+ * before the dropzone rather than after it. Protect is emphasized as the likely
+ * primary case, but Verify is a peer: same size, same hit area, same weight of
+ * copy. The dropzone only appears once a path is picked, and its wording says
+ * which image it wants.
+ */
 function UploadScreen({
   inputRef,
   isDragging,
   setIsDragging,
   onFile,
+  mode,
+  onSelectMode,
 }: {
   inputRef: React.RefObject<HTMLInputElement | null>;
   isDragging: boolean;
   setIsDragging: (value: boolean) => void;
   onFile: (file: File) => void;
+  mode: AppMode | null;
+  onSelectMode: (mode: AppMode) => void;
 }) {
   return (
     <div className="mx-auto max-w-3xl pt-10 text-center">
@@ -444,66 +523,169 @@ function UploadScreen({
         version with a verifiable integrity record.
       </p>
 
-      <div
-        onDragOver={(event) => {
-          event.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={(event) => {
-          event.preventDefault();
-          setIsDragging(false);
-
-          const droppedFile = event.dataTransfer.files?.[0];
-
-          if (droppedFile) {
-            onFile(droppedFile);
-          }
-        }}
-        className={`mt-10 rounded-3xl border border-dashed p-12 transition ${
-          isDragging
-            ? "border-white bg-white/10"
-            : "border-white/15 bg-white/[0.03]"
-        }`}
-      >
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(event) => {
-            const selectedFile = event.target.files?.[0];
-
-            if (selectedFile) {
-              onFile(selectedFile);
-            }
-          }}
+      <div className="mt-10 grid gap-4 md:grid-cols-2">
+        <PathCard
+          icon={<ShieldCheck size={20} />}
+          title="Protect an image"
+          hint="Start here"
+          description="I have an original photo. I want to hide faces and other identifying details, then publish it with proof that nothing else was changed."
+          selected={mode === "protect"}
+          dimmed={mode === "verify"}
+          onClick={() => onSelectMode("protect")}
         />
 
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-black">
-          <Upload size={22} />
+        <PathCard
+          icon={<Eye size={20} />}
+          title="Verify an image"
+          description="I have an image someone published and a verification ID. I want to check that it matches the record and has not been altered."
+          selected={mode === "verify"}
+          dimmed={mode === "protect"}
+          onClick={() => onSelectMode("verify")}
+        />
+      </div>
+
+      {mode && (
+        <div
+          onDragOver={(event) => {
+            event.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setIsDragging(false);
+
+            const droppedFile = event.dataTransfer.files?.[0];
+
+            if (droppedFile) {
+              onFile(droppedFile);
+            }
+          }}
+          className={`mt-6 rounded-3xl border border-dashed p-12 transition ${
+            isDragging
+              ? "border-white bg-white/10"
+              : "border-white/15 bg-white/[0.03]"
+          }`}
+        >
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(event) => {
+              const selectedFile = event.target.files?.[0];
+
+              if (selectedFile) {
+                onFile(selectedFile);
+              }
+            }}
+          />
+
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-black">
+            <Upload size={22} />
+          </div>
+
+          <h2 className="mt-5 text-lg font-medium">
+            {mode === "protect"
+              ? "Upload the original photograph"
+              : "Upload the published image to check"}
+          </h2>
+
+          <p className="mt-2 text-sm text-white/40">
+            Drag and drop an image here or choose a file.
+          </p>
+
+          <button
+            onClick={() => inputRef.current?.click()}
+            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-medium text-black transition hover:bg-white/90"
+          >
+            Choose image
+            <ChevronRight size={16} />
+          </button>
+
+          <div className="mt-6 flex items-center justify-center gap-2 text-xs text-white/30">
+            <Lock size={12} />
+            {mode === "protect"
+              ? "Original image stays in your browser during this demo."
+              : "The image is only hashed in your browser. Nothing is uploaded."}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One of the two landing choices.
+ *
+ * Styling is the selectable-card pattern already used for the AI findings list:
+ * chosen is border-white/25 bg-white/10, passed-over is border-white/5
+ * bg-black/10 opacity-50. Before a choice is made, Protect wears the chosen
+ * treatment as its accent and Verify wears the neutral panel treatment used
+ * everywhere else, so neither looks disabled.
+ */
+function PathCard({
+  icon,
+  title,
+  hint,
+  description,
+  selected,
+  dimmed,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  hint?: string;
+  description: string;
+  selected: boolean;
+  dimmed: boolean;
+  onClick: () => void;
+}) {
+  // Four states, every one an existing combination from elsewhere in the app:
+  //   chosen   -> border-white bg-white/10      (active dropzone, selected region)
+  //   accented -> border-white/25 bg-white/10   (selected finding card)
+  //   neutral  -> border-white/10 bg-white/[0.03] (every panel)
+  //   passed   -> border-white/5 bg-black/10 opacity-50 (deselected finding card)
+  const emphasis = selected
+    ? "border-white bg-white/10"
+    : dimmed
+      ? "border-white/5 bg-black/10 opacity-50"
+      : hint
+        ? "border-white/25 bg-white/10"
+        : "border-white/10 bg-white/[0.03]";
+
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`w-full rounded-xl border p-5 text-left transition hover:bg-white/10 ${emphasis}`}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
+          {icon}
         </div>
 
-        <h2 className="mt-5 text-lg font-medium">Upload photograph</h2>
-
-        <p className="mt-2 text-sm text-white/40">
-          Drag and drop an image here or choose a file.
-        </p>
-
-        <button
-          onClick={() => inputRef.current?.click()}
-          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-medium text-black transition hover:bg-white/90"
+        <div
+          className={`flex h-5 w-5 items-center justify-center rounded-full border ${
+            selected ? "border-white bg-white text-black" : "border-white/20"
+          }`}
         >
-          Choose image
-          <ChevronRight size={16} />
-        </button>
-
-        <div className="mt-6 flex items-center justify-center gap-2 text-xs text-white/30">
-          <Lock size={12} />
-          Original image stays in your browser during this demo.
+          {selected && <Check size={12} />}
         </div>
       </div>
-    </div>
+
+      <div className="mt-4 flex items-center gap-3">
+        <span className="font-medium">{title}</span>
+
+        {hint && !selected && !dimmed && (
+          <span className="text-xs uppercase tracking-wide text-white/35">
+            {hint}
+          </span>
+        )}
+      </div>
+
+      <p className="mt-2 text-sm leading-6 text-white/45">{description}</p>
+    </button>
   );
 }
 
@@ -768,11 +950,13 @@ function VerifiedScreen({
             <RecordItem
               label="Original image commitment"
               value={shortHash(originalHash)}
+              copyValue={originalHash}
             />
 
             <RecordItem
               label="Protected image commitment"
               value={shortHash(protectedHash)}
+              copyValue={protectedHash}
             />
 
             <RecordItem
@@ -800,13 +984,217 @@ function VerifiedScreen({
   );
 }
 
+/**
+ * Verify step 2 of 3: take the ID that came with the published image.
+ *
+ * Layout mirrors VerifiedScreen — image on the left, record panel on the right,
+ * same `grid items-start gap-6 md:grid-cols-2`.
+ */
+function VerifyIdScreen({
+  imageUrl,
+  verificationId,
+  setVerificationId,
+  onCheck,
+}: {
+  imageUrl: string | null;
+  verificationId: string;
+  setVerificationId: (value: string) => void;
+  onCheck: () => void;
+}) {
+  return (
+    <div className="mx-auto max-w-4xl">
+      <div className="mb-8 text-center">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
+          <ShieldCheck size={22} />
+        </div>
+
+        <h1 className="text-3xl font-semibold md:text-4xl">
+          Enter the verification ID
+        </h1>
+
+        <p className="mt-3 text-sm text-white/45">
+          The publisher shares this with the image. It is the protected image
+          commitment from the integrity record.
+        </p>
+      </div>
+
+      <div className="grid items-start gap-6 md:grid-cols-2">
+        {imageUrl && (
+          <div className="self-start overflow-hidden rounded-3xl border border-white/10 bg-black">
+            <img
+              src={imageUrl}
+              alt="Image to check"
+              className="block max-h-[500px] w-full object-contain"
+            />
+          </div>
+        )}
+
+        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={20} />
+            <span className="font-medium">Integrity check</span>
+          </div>
+
+          <div className="mt-6">
+            <div className="text-xs uppercase tracking-wide text-white/35">
+              Verification ID
+            </div>
+
+            <input
+              value={verificationId}
+              onChange={(event) => setVerificationId(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && verificationId.trim()) onCheck();
+              }}
+              placeholder="Paste the protected image commitment"
+              spellCheck={false}
+              autoComplete="off"
+              className="mt-2 w-full break-all rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-white/25"
+            />
+          </div>
+
+          <div className="mt-6 rounded-xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white/50">
+            TrueMask hashes the image in your browser and compares it with this
+            ID. Nothing is uploaded, and no wallet is needed to run the check.
+          </div>
+
+          <button
+            onClick={onCheck}
+            disabled={!verificationId.trim()}
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-medium text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Check this image
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Verify step 3 of 3: the answer. */
+function VerifyResultScreen({
+  imageUrl,
+  passed,
+  checkedHash,
+  verificationId,
+  onBack,
+  onReset,
+}: {
+  imageUrl: string | null;
+  passed: boolean;
+  checkedHash: string;
+  verificationId: string;
+  onBack: () => void;
+  onReset: () => void;
+}) {
+  return (
+    <div className="mx-auto max-w-4xl">
+      <div className="mb-8 text-center">
+        {passed ? (
+          <CheckCircle2 className="mx-auto mb-4" size={44} />
+        ) : (
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5">
+            <X size={22} />
+          </div>
+        )}
+
+        <h1 className="text-3xl font-semibold md:text-4xl">
+          {passed ? "This image matches the record" : "This image does not match"}
+        </h1>
+
+        <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-white/45">
+          {passed
+            ? "The image you were given is byte-for-byte the one the publisher protected. Nothing has been changed since."
+            : "The image does not hash to the verification ID you entered. It was edited, re-saved in another format, or it is not the image this ID belongs to."}
+        </p>
+      </div>
+
+      <div className="grid items-start gap-6 md:grid-cols-2">
+        {imageUrl && (
+          <div className="self-start overflow-hidden rounded-3xl border border-white/10 bg-black">
+            <img
+              src={imageUrl}
+              alt="Checked image"
+              className="block max-h-[500px] w-full object-contain"
+            />
+          </div>
+        )}
+
+        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={20} />
+            <span className="font-medium">Integrity record</span>
+          </div>
+
+          <div className="mt-6 space-y-5">
+            <RecordItem
+              label="Verification status"
+              value={passed ? "Match" : "No match"}
+              success={passed}
+            />
+
+            <RecordItem
+              label="Verification ID"
+              value={shortHash(verificationId.trim())}
+              copyValue={verificationId.trim()}
+            />
+
+            <RecordItem
+              label="This image hashes to"
+              value={shortHash(checkedHash)}
+              copyValue={checkedHash}
+            />
+          </div>
+
+          <div className="mt-6 rounded-xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white/50">
+            {passed
+              ? "Next integration step: look the commitment up on the Compact contract to confirm the record was published on-chain."
+              : "Check that you pasted the whole ID, and that the file was not re-encoded on its way to you."}
+          </div>
+
+          {/*
+            The corrective action only leads when there is something to correct.
+            On a match, moving on is the primary action; on a mismatch, a mistyped
+            ID is the likeliest cause, so re-entering it comes first.
+          */}
+          <button
+            onClick={passed ? onReset : onBack}
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-medium text-black transition hover:bg-white/90"
+          >
+            {passed ? <FileImage size={16} /> : <RefreshCw size={16} />}
+            {passed ? "Check another image" : "Edit the ID"}
+          </button>
+
+          <button
+            onClick={passed ? onBack : onReset}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 px-4 py-3 text-sm text-white/70 transition hover:bg-white/5"
+          >
+            {passed ? <RefreshCw size={16} /> : <FileImage size={16} />}
+            {passed ? "Edit the ID" : "Check another image"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RecordItem({
   label,
   value,
+  copyValue,
   success = false,
 }: {
   label: string;
   value: string;
+  /**
+   * The full, untruncated value to put on the clipboard.
+   *
+   * `value` is shortened for display, so selecting it with the mouse yields the
+   * ellipsis rather than the hash — which then never verifies. Anything a reader
+   * has to paste back into TrueMask must pass the whole string through here.
+   */
+  copyValue?: string;
   success?: boolean;
 }) {
   return (
@@ -815,15 +1203,60 @@ function RecordItem({
         {label}
       </div>
 
-      <div
-        className={`mt-2 break-all text-sm ${
-          success ? "text-white" : "text-white/70"
-        }`}
-      >
-        {success && <CheckCircle2 size={15} className="mr-2 inline" />}
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <div
+          className={`break-all text-sm ${success ? "text-white" : "text-white/70"}`}
+          title={copyValue ?? undefined}
+        >
+          {success && <CheckCircle2 size={15} className="mr-2 inline" />}
 
-        {value}
+          {value}
+        </div>
+
+        {copyValue && <CopyButton value={copyValue} label={label} />}
       </div>
     </div>
+  );
+}
+
+/**
+ * Copies a full value and confirms it in place.
+ *
+ * Styled as the existing ghost button (border-white/10, hover:bg-white/5), just
+ * square and icon-only so it sits on the same line as the value.
+ */
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      // Clipboard API needs a secure context; fall back for plain http hosts.
+      const field = document.createElement("textarea");
+      field.value = value;
+      field.style.position = "fixed";
+      field.style.opacity = "0";
+      document.body.appendChild(field);
+      field.select();
+      try {
+        document.execCommand("copy");
+      } finally {
+        document.body.removeChild(field);
+      }
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
+  }
+
+  return (
+    <button
+      onClick={copy}
+      aria-label={copied ? `${label} copied` : `Copy ${label.toLowerCase()}`}
+      title={copied ? "Copied" : "Copy full value"}
+      className="shrink-0 rounded-lg border border-white/10 p-2 text-white/70 transition hover:bg-white/5"
+    >
+      {copied ? <Check size={15} /> : <Copy size={15} />}
+    </button>
   );
 }
