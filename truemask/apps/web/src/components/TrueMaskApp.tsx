@@ -1155,7 +1155,7 @@ function PublishPanel({
 
       {!isWalletAvailable && publish.status === "idle" && (
         <p className="mt-3 text-center text-xs text-white/30">
-          Needs the Midnight Lace extension. Your image and its commitment are
+          Needs a Midnight wallet extension (Lace or 1AM). Your image and its commitment are
           already protected and verifiable without it.
         </p>
       )}
@@ -1179,8 +1179,8 @@ function PublishPanel({
             </>
           ) : /wallet not found|not installed|extension/i.test(publish.message) ? (
             <>
-              No Midnight wallet was detected in this browser. Install the
-              Midnight Lace extension and reload the page — setup steps are at{" "}
+              No Midnight wallet was detected in this browser. Install a
+              Midnight wallet extension — Lace ({" "}
               <a
                 href="https://docs.midnight.network"
                 target="_blank"
@@ -1189,7 +1189,16 @@ function PublishPanel({
               >
                 docs.midnight.network
               </a>
-              .
+              ) or 1AM ({" "}
+              <a
+                href="https://1am.xyz"
+                target="_blank"
+                rel="noreferrer"
+                className="text-white underline underline-offset-2"
+              >
+                1am.xyz
+              </a>
+              ) — then reload the page.
             </>
           ) : (
             publish.message

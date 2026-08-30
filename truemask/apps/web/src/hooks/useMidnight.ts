@@ -90,8 +90,20 @@ export const FAUCET_URL = "https://faucet.preprod.midnight.network/";
 /** Contract to publish into and read back from. Empty means offline-only. */
 export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ?? "";
 
-/** Wallet key injected under `window.midnight`. Lace uses `mnLace`. */
-const WALLET_KEY = "mnLace";
+/**
+ * Finds any wallet implementing the Midnight DApp Connector API — not just
+ * Lace. Each wallet injects its `InitialAPI` under its own key in
+ * `window.midnight` (a UUID, per CAIP-372); assuming a fixed key locks the app
+ * to one wallet. Lace additionally aliases itself at `mnLace`, checked first
+ * only so an existing Lace install keeps resolving to the exact object it did
+ * before this change — any other injected wallet (e.g. 1AM) is found the same
+ * way via enumeration.
+ */
+function findWallet(): InitialAPI | undefined {
+  if (typeof window === "undefined" || !window.midnight) return undefined;
+  const known = window.midnight as Record<string, InitialAPI | undefined>;
+  return known.mnLace ?? Object.values(known).find((wallet) => wallet != null);
+}
 
 export interface UseMidnightResult {
   providers: TrueMaskProviders | null;
@@ -114,20 +126,16 @@ export function useMidnight(config: MidnightConfig = DEFAULT_CONFIG): UseMidnigh
   const [error, setError] = useState<string | null>(null);
   const [api, setApi] = useState<TrueMaskAPI | null>(null);
 
-  const isWalletAvailable = useMemo(
-    () => typeof window !== "undefined" && Boolean(window.midnight?.[WALLET_KEY]),
-    [],
-  );
+  const isWalletAvailable = useMemo(() => Boolean(findWallet()), []);
 
   const connect = useCallback(async () => {
     setIsConnecting(true);
     setError(null);
     try {
-      const connector: InitialAPI | undefined =
-        typeof window === "undefined" ? undefined : window.midnight?.[WALLET_KEY];
+      const connector = findWallet();
       if (!connector) {
         throw new Error(
-          "Midnight Lace wallet not found. Install the extension and reload the page.",
+          "No Midnight wallet found. Install a Midnight wallet extension (Lace or 1AM) and reload the page.",
         );
       }
 

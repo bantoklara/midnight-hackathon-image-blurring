@@ -5,7 +5,7 @@
 ## The problem
 
 A journalist photographs a sensitive source, a witness, or a risky scene. Modern AI can work out
-**where** a photo was taken from background detail alone — faces, shop signs, a recognisable
+where a photo was taken from background detail alone — faces, shop signs, a recognisable
 facade — with no GPS metadata involved. Publishing the picture can expose both the source and the
 journalist.
 
