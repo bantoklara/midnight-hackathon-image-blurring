@@ -144,6 +144,8 @@ export default function TrueMaskApp() {
   const [protectedHash, setProtectedHash] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  /** Whether the AI model is currently being downloaded from the CDN (first run only). */
+  const [modelLoading, setModelLoading] = useState(false);
   /** The decoded original pixels. Held so the protect step hashes what was scanned. */
   const sourcePixels = useRef<ImageData | null>(null);
   /** Object URL of the real redacted PNG. This is what the "protected" panels show. */
@@ -209,6 +211,16 @@ export default function TrueMaskApp() {
       // Run independently: Tesseract downloads language data on first use and is
       // the more fragile of the two. Awaiting both in one array meant an OCR
       // failure threw away perfectly good face detections as well.
+      setModelLoading(true);
+      setStatus("Loading AI model (first run downloads ~20 MB)…");
+      // Warm up the face model so we can show loading state before scanning
+      // detectFaces handles caching internally — subsequent calls are instant.
+      try {
+        await vision.detectFaces(image, { minConfidence: 2 }); // minConfidence: 2 = impossible, so 0 results but model is warmed
+      } catch {
+        // ignore — we just wanted to load the model
+      }
+      setModelLoading(false);
       setStatus("Scanning for faces and text…");
       const [faces, text] = await Promise.allSettled([
         vision.detectFaces(image),
@@ -560,7 +572,7 @@ export default function TrueMaskApp() {
           />
         )}
 
-        {step === "scan" && imageUrl && <ScanningScreen imageUrl={imageUrl} />}
+        {step === "scan" && imageUrl && <ScanningScreen imageUrl={imageUrl} modelLoading={modelLoading} />}
 
         {step === "review" && imageUrl && (
           <ReviewScreen
@@ -819,17 +831,27 @@ function PathCard({
   );
 }
 
-function ScanningScreen({ imageUrl }: { imageUrl: string }) {
+function ScanningScreen({ imageUrl, modelLoading }: { imageUrl: string; modelLoading: boolean }) {
   return (
     <div className="mx-auto max-w-3xl">
       <div className="mb-6 text-center">
         <Sparkles className="mx-auto mb-4" size={24} />
 
-        <h1 className="text-3xl font-semibold">Scanning for privacy risks</h1>
+        <h1 className="text-3xl font-semibold">
+          {modelLoading ? "Loading AI model" : "Scanning for privacy risks"}
+        </h1>
 
         <p className="mt-2 text-sm text-white/45">
-          Detecting identifying information in the image.
+          {modelLoading
+            ? "Downloading the face detection model (~20 MB) — this only happens once."
+            : "Detecting identifying information in the image."}
         </p>
+
+        {modelLoading && (
+          <div className="mx-auto mt-4 h-1.5 w-64 overflow-hidden rounded-full bg-white/10">
+            <div className="h-full w-full animate-[shimmer_1.5s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-transparent via-white/60 to-transparent bg-[length:200%_100%]" />
+          </div>
+        )}
       </div>
 
       <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-black">
@@ -842,22 +864,24 @@ function ScanningScreen({ imageUrl }: { imageUrl: string }) {
         <div className="pointer-events-none absolute inset-x-0 top-0 h-1 animate-pulse bg-white" />
       </div>
 
-      <div className="mt-6 space-y-3">
-        {[
-          "Analyzing visual identity signals",
-          "Checking visible text",
-          "Checking location clues",
-          "Preparing exposure risk map",
-        ].map((item) => (
-          <div
-            key={item}
-            className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] p-4 text-sm text-white/60"
-          >
-            <RefreshCw size={16} className="animate-spin" />
-            {item}
-          </div>
-        ))}
-      </div>
+      {!modelLoading && (
+        <div className="mt-6 space-y-3">
+          {[
+            "Analyzing visual identity signals",
+            "Checking visible text",
+            "Checking location clues",
+            "Preparing exposure risk map",
+          ].map((item) => (
+            <div
+              key={item}
+              className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] p-4 text-sm text-white/60"
+            >
+              <RefreshCw size={16} className="animate-spin" />
+              {item}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

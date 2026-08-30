@@ -25,6 +25,10 @@ const nextConfig: NextConfig = {
       // See src/shims/isomorphic-ws.ts — the upstream browser build has no
       // named `WebSocket` export, which the indexer provider requires.
       "isomorphic-ws": "./src/shims/isomorphic-ws.ts",
+      // Force the browser ESM build of @vladmandic/human.
+      // Without this, Turbopack traces human.node.js which requires
+      // @tensorflow/tfjs-node and crashes during SSR with Module not found.
+      "@vladmandic/human": "@vladmandic/human/dist/human.esm.js",
     },
   },
 };

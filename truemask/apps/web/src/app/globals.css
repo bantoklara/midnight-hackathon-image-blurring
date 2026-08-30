@@ -42,3 +42,8 @@ button {
 ::selection {
   background: rgba(124, 141, 255, 0.4);
 }
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
