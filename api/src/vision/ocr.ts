@@ -24,6 +24,14 @@ export interface OcrOptions {
   language?: string;
   /** Minimum per-word confidence in [0, 1] to report. Default 0.6. */
   minConfidence?: number;
+  /**
+   * Minimum recognised characters for a word to count. Default 3.
+   * Tesseract emits a lot of one- and two-character junk on photographs
+   * (a digit off a cup, a fragment of a logo). Those are not location clues,
+   * and surfacing them as "sensitive text" trains the journalist to ignore
+   * the findings list.
+   */
+  minLength?: number;
 }
 
 interface TesseractWord {
@@ -54,6 +62,7 @@ export async function detectText(
   options: OcrOptions = {},
 ): Promise<Detection[]> {
   const minConfidence = options.minConfidence ?? 0.6;
+  const minLength = options.minLength ?? 3;
   const worker = await getWorker(options.language ?? 'eng');
 
   // Tesseract reads the canvas at its own resolution; boxes come back in that
@@ -70,7 +79,9 @@ export async function detectText(
         for (const word of line.words) {
           const confidence = word.confidence / 100; // Tesseract reports 0..100
           if (confidence < minConfidence) continue;
-          if (!word.text.trim()) continue;
+          const text = word.text.trim();
+          // Count letters and digits only, so "4." or "|~" never qualifies.
+          if (text.replace(/[^\p{L}\p{N}]/gu, '').length < minLength) continue;
 
           const inverse = scale < 1 ? 1 / scale : 1;
           const x = word.bbox.x0 * inverse;
@@ -78,7 +89,7 @@ export async function detectText(
           results.push({
             kind: 'text',
             confidence,
-            text: word.text,
+            text,
             box: {
               x,
               y,

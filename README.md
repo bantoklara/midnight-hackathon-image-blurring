@@ -47,6 +47,7 @@ changed, the roots diverge and verification fails.
 | `TrueMaskAPI` (deploy / join / submit / verify) | **Working**, typechecked and built |
 | Next.js UI wired to the real pipeline and the real contract | **Working** — builds and runs |
 | Face + text detection in the browser | **Implemented**, not automatically testable (browser-only) |
+| Protected image displayed + downloadable as PNG | **Working** |
 | Wallet connection, on-chain submission | **Implemented, unverified** — needs Lace + node + indexer |
 | Local devnet (node + indexer) | **Not set up** — documented below |
 
@@ -266,16 +267,38 @@ record locally instead of publishing it.
 
 These are real and deliberate, not oversights:
 
-1. **The comparison screen shows a CSS-blur preview, not the actual redacted PNG.** The redaction the
-   app computes and hashes is a real irreversible blackout; the `ImageComparison` step still renders
-   the original image with a blur filter over it. Fixing it means passing the redacted object URL
-   into that component — a small JSX change that was out of scope for this pass.
-2. **The wallet adapter in `useMidnight.ts` has not been exercised.** Every import and signature was
+1. **The wallet adapter in `useMidnight.ts` has not been exercised.** Every import and signature was
    checked against the installed `.d.ts` files, but the wallet speaks in serialized transaction
    strings while `WalletProvider` speaks in ledger objects, and that boundary needs a live Lace
    wallet to confirm. It is isolated in one function and flagged in the source.
-3. **No devnet.** See step 7 above.
-4. **Detection quality is untested.** MediaPipe and Tesseract are browser-only, so the detectors have
-   no unit tests; everything downstream of them does.
+2. **No devnet.** See step 7 above.
+3. **Detection quality has no unit tests.** MediaPipe and Tesseract are browser-only. It has been
+   verified end to end in a real headless browser (full-range BlazeFace, 2x2 tiled, 10 regions found
+   on a wide café photo), but there is no automated regression test — everything downstream of the
+   detectors does have one. There is **no licence-plate detector**; plates are covered incidentally
+   by OCR reading the characters on them as text.
+4. **Large photos are slow.** Hashing is proportional to pixel count and runs on the main thread:
+
+   | image | blocks | `redactImage` total |
+   |---|---|---|
+   | 640x480 | 1,200 | ~0.5 s |
+   | 1920x1080 | 8,160 | ~2.0 s |
+   | 4032x3024 (12 MP) | 47,628 | ~8.6 s |
+
+   Blocks are hashed in batches and the loop yields between them, so the tab stays responsive and a
+   progress percentage is shown, but a 12 MP upload still takes several seconds. Moving the pipeline
+   into a Web Worker is the fix; it was not needed for the demo.
 5. **The contract workspace is still named `leaderboard-contract`** and still carries the unrelated
    tutorial contract from the template. Renaming touches every import, so it was left alone.
+
+## Check which checkout you are running
+
+In development the page prints the serving directory in the bottom-left corner. A stale `next dev`
+from an unrelated copy of this project once held `:3000` for hours, and its hardcoded demo detections
+were mistaken for broken MediaPipe output. If that badge does not say
+`.../TrueMask/truemask/apps/web`, you are looking at a different project:
+
+```bash
+ss -ltnp | grep :3000     # find what owns the port
+pkill -f next-server      # then: npm run dev, from this repo
+```

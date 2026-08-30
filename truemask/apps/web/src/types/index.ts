@@ -6,7 +6,12 @@ export type AppStep =
   | "compare"
   | "verified";
   
-export type DetectionType = "face" | "license_plate" | "text";
+/**
+ * There is no licence-plate detector — that category only ever existed as a
+ * hardcoded demo value. Plates are covered incidentally by OCR, which reads the
+ * characters on them as text.
+ */
+export type DetectionType = "face" | "text";
 
 export interface Detection {
   id: string;
