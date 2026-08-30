@@ -13,11 +13,12 @@
  * log — the circuit only ever sees block hashes.
  */
 
-import type { Detection, RgbaImage } from './types.js';
-import { toCanvas } from './image-source.js';
+import type { Detection, RgbaImage } from "./types.js";
+import { toCanvas } from "./image-source.js";
 
-/** Tesseract is slow on large images; text large enough to read survives this cap. */
-const OCR_MAX_EDGE = 1600;
+/** Tesseract is slow on large images; text large enough to read survives this cap.
+ * Increased from 1600 to 2000 to capture smaller but still readable text better. */
+const OCR_MAX_EDGE = 2000;
 
 export interface OcrOptions {
   /** Tesseract language code(s), e.g. 'eng' or 'eng+spa'. Default 'eng'. */
@@ -54,23 +55,27 @@ interface TesseractBlock {
 }
 
 let cachedWorker: TesseractWorker | null = null;
-let cachedLanguage = '';
+let cachedLanguage = "";
 
 /** Detect text regions in the image. Returns [] when none are found. */
 export async function detectText(
   image: RgbaImage,
   options: OcrOptions = {},
 ): Promise<Detection[]> {
-  const minConfidence = options.minConfidence ?? 0.6;
-  const minLength = options.minLength ?? 3;
-  const worker = await getWorker(options.language ?? 'eng');
+  // Increased to 0.7 for better accuracy, reducing OCR noise and false positives
+  const minConfidence = options.minConfidence ?? 0.7;
+  // Require at least 4 characters to reduce single-character false positives
+  const minLength = options.minLength ?? 4;
+  const worker = await getWorker(options.language ?? "eng");
 
   // Tesseract reads the canvas at its own resolution; boxes come back in that
   // space, so record the scale and map every box back to full resolution.
   const scale = Math.min(1, OCR_MAX_EDGE / Math.max(image.width, image.height));
   const source = scale < 1 ? downscale(image, scale) : image;
 
-  const { data } = await worker.recognize(toCanvas(source), undefined, { blocks: true });
+  const { data } = await worker.recognize(toCanvas(source), undefined, {
+    blocks: true,
+  });
 
   const results: Detection[] = [];
   for (const block of data.blocks ?? []) {
@@ -81,20 +86,32 @@ export async function detectText(
           if (confidence < minConfidence) continue;
           const text = word.text.trim();
           // Count letters and digits only, so "4." or "|~" never qualifies.
-          if (text.replace(/[^\p{L}\p{N}]/gu, '').length < minLength) continue;
+          if (text.replace(/[^\p{L}\p{N}]/gu, "").length < minLength) continue;
 
           const inverse = scale < 1 ? 1 / scale : 1;
           const x = word.bbox.x0 * inverse;
           const y = word.bbox.y0 * inverse;
           results.push({
-            kind: 'text',
+            kind: "text",
             confidence,
             text,
             box: {
               x,
               y,
-              width: Math.max(0, Math.min((word.bbox.x1 - word.bbox.x0) * inverse, image.width - x)),
-              height: Math.max(0, Math.min((word.bbox.y1 - word.bbox.y0) * inverse, image.height - y)),
+              width: Math.max(
+                0,
+                Math.min(
+                  (word.bbox.x1 - word.bbox.x0) * inverse,
+                  image.width - x,
+                ),
+              ),
+              height: Math.max(
+                0,
+                Math.min(
+                  (word.bbox.y1 - word.bbox.y0) * inverse,
+                  image.height - y,
+                ),
+              ),
             },
           });
         }
@@ -108,14 +125,14 @@ export async function detectText(
 export async function disposeOcrWorker(): Promise<void> {
   await cachedWorker?.terminate();
   cachedWorker = null;
-  cachedLanguage = '';
+  cachedLanguage = "";
 }
 
 async function getWorker(language: string): Promise<TesseractWorker> {
   if (cachedWorker && cachedLanguage === language) return cachedWorker;
   await disposeOcrWorker();
 
-  const { createWorker } = await import('tesseract.js');
+  const { createWorker } = await import("tesseract.js");
   cachedWorker = (await createWorker(language)) as unknown as TesseractWorker;
   cachedLanguage = language;
   return cachedWorker;
