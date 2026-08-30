@@ -6,6 +6,10 @@
   "module": "./dist/index.js",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./dist/*": "./dist/*"
+  },
   "scripts": {
     "build": "shx rm -rf dist && tsc --project tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -13,12 +17,14 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",
-    "tesseract.js": "^7.0.0",
-    "@midnight-ntwrk/midnight-js-types": "4.1.1",
     "@midnight-ntwrk/midnight-js-contracts": "4.1.1",
     "@midnight-ntwrk/midnight-js-protocol": "4.1.1",
+    "@midnight-ntwrk/midnight-js-types": "4.1.1",
+    "@vladmandic/human": "^3.3.6",
+    "onnxruntime-web": "^1.29.0",
     "pino": "^10.3.1",
     "rxjs": "^7.8.2",
+    "tesseract.js": "^7.0.0",
     "truemask-contract": "*"
   },
   "devDependencies": {

@@ -11,21 +11,22 @@
     "sync:zk": "shx rm -rf public/midnight/truemask && shx mkdir -p public/midnight && shx cp -Rf ../../../contract/managed/truemask public/midnight/truemask"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "^1.0.1",
     "@midnight-ntwrk/dapp-connector-api": "4.0.1",
     "@midnight-ntwrk/midnight-js-contracts": "4.1.1",
+    "@midnight-ntwrk/midnight-js-fetch-zk-config-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-network-id": "4.1.1",
+    "@midnight-ntwrk/midnight-js-types": "4.1.1",
     "@midnight-ntwrk/wallet-api": "^5.0.0",
+    "@vladmandic/human": "^3.3.6",
     "framer-motion": "^13.1.1",
     "lucide-react": "^1.37.0",
     "next": "16.3.3",
+    "onnxruntime-web": "^1.29.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "@midnight-ntwrk/midnight-js-types": "4.1.1",
-    "@midnight-ntwrk/midnight-js-network-id": "4.1.1",
-    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.1.1",
-    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.1.1",
-    "@midnight-ntwrk/midnight-js-fetch-zk-config-provider": "4.1.1",
-    "@midnight-ntwrk/midnight-js-level-private-state-provider": "4.1.1",
     "truemask-api": "*",
     "truemask-contract": "*"
   },
@@ -36,8 +37,8 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
+    "shx": "^0.4.0",
     "tailwindcss": "^4",
-    "typescript": "^5",
-    "shx": "^0.4.0"
+    "typescript": "^5"
   }
 }

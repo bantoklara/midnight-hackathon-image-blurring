@@ -80,18 +80,26 @@ export class TrueMaskAPI {
    * — the lossless PNG. Hashing a re-encoded (e.g. JPEG) copy produces a record
    * nobody can ever verify.
    */
-  async submitRedaction(redactedImageHash: Uint8Array, redaction: RedactionResult): Promise<void> {
+  async submitRedaction(
+    redactedImageHash: Uint8Array,
+    redaction: RedactionResult,
+  ): Promise<SubmittedRecord> {
     const { grid, authorizationCommitment, laneDigests } = redaction.plan;
     stageRedactionWitness(laneDigests, redaction.originalLaneDigests);
     try {
       this.logger?.info({ cols: grid.cols, rows: grid.rows }, 'submitting redaction');
-      await (this.deployedContract as any).callTx.submit_redaction(
+      const finalized = await (this.deployedContract as any).callTx.submit_redaction(
         redactedImageHash,
         authorizationCommitment,
         BigInt(grid.cols),
         BigInt(grid.rows),
         BigInt(grid.blockSize),
       );
+      return {
+        txId: String(finalized?.public?.txId ?? ''),
+        status: String(finalized?.public?.status ?? 'unknown'),
+        contractAddress: String(this.deployedContractAddress),
+      };
     } finally {
       clearRedactionWitness();
     }
@@ -137,6 +145,16 @@ export class TrueMaskAPI {
     });
     return new TrueMaskAPI(deployedContract, providers, logger);
   }
+}
+
+/** What a successful publish reports back, so the UI can show a real receipt. */
+export interface SubmittedRecord {
+  /** Transaction id assigned by the network. */
+  readonly txId: string;
+  /** Finalization status reported by the SDK. */
+  readonly status: string;
+  /** The contract the record now lives in. */
+  readonly contractAddress: string;
 }
 
 const toHex = (bytes: Uint8Array): string =>

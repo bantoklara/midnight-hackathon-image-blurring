@@ -8,13 +8,27 @@ const nextConfig: NextConfig = {
   // `contract` and `api` are sibling workspaces shipped as TypeScript-built ESM.
   // Next has to run them through its own pipeline rather than treating them as
   // pre-bundled externals.
-  transpilePackages: ["truemask-api", "leaderboard-contract"],
+  transpilePackages: ["truemask-api", "truemask-contract"],
+
+  // Image optimization for better performance
+  images: {
+    unoptimized: true, // Since we're handling images as data, disable next/image optimization
+  },
+
+  // Performance improvements
+  poweredByHeader: false,
+  compress: true,
+  productionBrowserSourceMaps: false,
 
   turbopack: {
     resolveAlias: {
       // See src/shims/isomorphic-ws.ts — the upstream browser build has no
       // named `WebSocket` export, which the indexer provider requires.
       "isomorphic-ws": "./src/shims/isomorphic-ws.ts",
+      // Force the browser ESM build of @vladmandic/human.
+      // Without this, Turbopack traces human.node.js which requires
+      // @tensorflow/tfjs-node and crashes during SSR with Module not found.
+      "@vladmandic/human": "@vladmandic/human/dist/human.esm.js",
     },
   },
 };

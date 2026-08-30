@@ -10,6 +10,7 @@ import type {
 } from "@midnight-ntwrk/midnight-js-types";
 import type { FinalizedTransaction } from "@midnight-ntwrk/midnight-js-protocol/ledger";
 import { setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
+import { firstValueFrom } from "rxjs";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import { FetchZkConfigProvider } from "@midnight-ntwrk/midnight-js-fetch-zk-config-provider";
@@ -64,10 +65,18 @@ export interface MidnightConfig {
 }
 
 export const DEFAULT_CONFIG: MidnightConfig = {
-  networkId: process.env.NEXT_PUBLIC_NETWORK_ID ?? "undeployed",
-  indexerUri: process.env.NEXT_PUBLIC_INDEXER_URI ?? "http://127.0.0.1:8088/api/v1/graphql",
-  indexerWsUri: process.env.NEXT_PUBLIC_INDEXER_WS_URI ?? "ws://127.0.0.1:8088/api/v1/graphql/ws",
-  proofServerUri: process.env.NEXT_PUBLIC_PROOF_SERVER_URI ?? "http://127.0.0.1:6300",
+  // Preprod is the demo target. Every value is overridable so a local devnet
+  // still works: set NEXT_PUBLIC_NETWORK_ID=undeployed with localhost URIs.
+  // The proof server is deliberately NOT remote — proving runs on this machine
+  // even against a public network, so the original image never leaves it.
+  networkId: process.env.NEXT_PUBLIC_NETWORK_ID ?? "preprod",
+  indexerUri:
+    process.env.NEXT_PUBLIC_INDEXER_URI ??
+    "https://indexer.preprod.midnight.network/api/v4/graphql",
+  indexerWsUri:
+    process.env.NEXT_PUBLIC_INDEXER_WS_URI ??
+    "wss://indexer.preprod.midnight.network/api/v4/graphql/ws",
+  proofServerUri: process.env.NEXT_PUBLIC_PROOF_SERVER_URI ?? "http://localhost:6300",
   zkConfigUri:
     process.env.NEXT_PUBLIC_ZK_CONFIG_URI ??
     (typeof window === "undefined"
@@ -75,8 +84,26 @@ export const DEFAULT_CONFIG: MidnightConfig = {
       : `${window.location.origin}/midnight/truemask`),
 };
 
-/** Wallet key injected under `window.midnight`. Lace uses `mnLace`. */
-const WALLET_KEY = "mnLace";
+/** Where a reader is sent when they have no tDUST. Preprod faucet dispenses tNIGHT. */
+export const FAUCET_URL = "https://faucet.preprod.midnight.network/";
+
+/** Contract to publish into and read back from. Empty means offline-only. */
+export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ?? "";
+
+/**
+ * Finds any wallet implementing the Midnight DApp Connector API — not just
+ * Lace. Each wallet injects its `InitialAPI` under its own key in
+ * `window.midnight` (a UUID, per CAIP-372); assuming a fixed key locks the app
+ * to one wallet. Lace additionally aliases itself at `mnLace`, checked first
+ * only so an existing Lace install keeps resolving to the exact object it did
+ * before this change — any other injected wallet (e.g. 1AM) is found the same
+ * way via enumeration.
+ */
+function findWallet(): InitialAPI | undefined {
+  if (typeof window === "undefined" || !window.midnight) return undefined;
+  const known = window.midnight as Record<string, InitialAPI | undefined>;
+  return known.mnLace ?? Object.values(known).find((wallet) => wallet != null);
+}
 
 export interface UseMidnightResult {
   providers: TrueMaskProviders | null;
@@ -99,20 +126,16 @@ export function useMidnight(config: MidnightConfig = DEFAULT_CONFIG): UseMidnigh
   const [error, setError] = useState<string | null>(null);
   const [api, setApi] = useState<TrueMaskAPI | null>(null);
 
-  const isWalletAvailable = useMemo(
-    () => typeof window !== "undefined" && Boolean(window.midnight?.[WALLET_KEY]),
-    [],
-  );
+  const isWalletAvailable = useMemo(() => Boolean(findWallet()), []);
 
   const connect = useCallback(async () => {
     setIsConnecting(true);
     setError(null);
     try {
-      const connector: InitialAPI | undefined =
-        typeof window === "undefined" ? undefined : window.midnight?.[WALLET_KEY];
+      const connector = findWallet();
       if (!connector) {
         throw new Error(
-          "Midnight Lace wallet not found. Install the extension and reload the page.",
+          "No Midnight wallet found. Install a Midnight wallet extension (Lace or 1AM) and reload the page.",
         );
       }
 
@@ -122,6 +145,9 @@ export function useMidnight(config: MidnightConfig = DEFAULT_CONFIG): UseMidnigh
       const connected = await connector.connect(config.networkId);
       const { unshieldedAddress } = await connected.getUnshieldedAddress();
 
+      // buildProviders resolves the wallet's public keys before returning, so
+      // the synchronous getCoinPublicKey()/getEncryptionPublicKey() the SDK
+      // calls during balancing can never observe an empty cache.
       const built = await buildProviders(connected, config);
       setWalletApi(connected);
       setAddress(unshieldedAddress);
@@ -186,7 +212,8 @@ async function buildProviders(
   );
 
   const zkConfigProvider = new FetchZkConfigProvider<TrueMaskCircuitKeys>(config.zkConfigUri);
-  const { walletProvider, midnightProvider } = walletAdapter(wallet, config);
+  const { walletProvider, midnightProvider, ready } = walletAdapter(wallet, config);
+  await ready;
 
   return {
     privateStateProvider: levelPrivateStateProvider({
@@ -232,8 +259,10 @@ function walletAdapter(wallet: ConnectedAPI, config: MidnightConfig) {
     };
     return cachedKeys;
   };
-  // Warm the cache so the synchronous getters below have something to return.
-  void loadKeys();
+  // Awaited by buildProviders before any provider escapes this module. The
+  // getters below are synchronous because the SDK calls them that way, so the
+  // cache has to be filled first rather than racing against the first publish.
+  const ready = loadKeys();
 
   const walletProvider: WalletProvider = {
     async balanceTx(tx: UnboundTransaction): Promise<FinalizedTransaction> {
@@ -265,7 +294,42 @@ function walletAdapter(wallet: ConnectedAPI, config: MidnightConfig) {
     },
   };
 
-  return { walletProvider, midnightProvider };
+  return { walletProvider, midnightProvider, ready };
+}
+
+/**
+ * Read a redaction record straight off the chain — no wallet, no signing, no cost.
+ *
+ * This is the whole point of separating the two journeys: verifying is a read,
+ * so a reader needs nothing installed. Only the indexer is contacted, and a
+ * failure here is never fatal to verification, which already succeeded locally.
+ */
+export async function lookupRecordOnChain(
+  redactedImageHashHex: string,
+  config: MidnightConfig = DEFAULT_CONFIG,
+  contractAddress: string = CONTRACT_ADDRESS,
+): Promise<"found" | "absent" | "unavailable"> {
+  if (!contractAddress) return "unavailable";
+  try {
+    setNetworkId(config.networkId);
+    const publicDataProvider = indexerPublicDataProvider(config.indexerUri, config.indexerWsUri);
+    const state = await firstValueFrom(
+      publicDataProvider.contractStateObservable(contractAddress as never, { type: "latest" }),
+    );
+    const { TrueMask } = await import("truemask-contract");
+    const key = hexToBytes(redactedImageHashHex);
+    return TrueMask.ledger(state.data).records.member(key) ? "found" : "absent";
+  } catch (err) {
+    console.error("On-chain lookup failed:", err);
+    return "unavailable";
+  }
+}
+
+function hexToBytes(value: string): Uint8Array {
+  const clean = value.trim().toLowerCase().replace(/^0x/, "");
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(clean.substr(i * 2, 2), 16);
+  return out;
 }
 
 function fromHexString(value: string): Uint8Array {
