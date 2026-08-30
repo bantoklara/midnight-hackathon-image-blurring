@@ -18,24 +18,23 @@ import {
 
 import type { AppStep, Detection } from "@/types";
 
-import { hashFile, shortHash } from "@/lib/image-utils";
-import { FaceDetector, FilesetResolver } from "@mediapipe/tasks-vision";
+import {
+  hashFile,
+  loadRgbaImage,
+  rgbaToPngBlob,
+  sha256Bytes,
+  shortHash,
+} from "@/lib/image-utils";
+import { vision } from "truemask-api";
 
-let faceDetector: FaceDetector | null = null;
-async function initFaceDetector() {
-  if (faceDetector) return faceDetector;
-  const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
-  );
-  faceDetector = await FaceDetector.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite`,
-      delegate: "GPU"
-    },
-    runningMode: "IMAGE"
-  });
-  return faceDetector;
-}
+/**
+ * Detection, block-splitting, hashing and redaction all live in the shared
+ * pipeline (`api/src/vision`), not in this component. That matters: the regions
+ * the journalist sees here and the blocks the circuit hashes have to come from
+ * one implementation, or the UI can show one thing while the proof commits to
+ * another.
+ */
+type PixelDetection = vision.Detection;
 
 const STEPS: {
   id: AppStep;
@@ -49,48 +48,49 @@ const STEPS: {
   { id: "verified", label: "Verify" },
 ];
 
-const MOCK_DETECTIONS: Detection[] = [
-  {
-    id: "face-1",
-    type: "face",
-    label: "Face",
-    risk: "critical",
-    x: 38,
-    y: 18,
-    width: 22,
-    height: 30,
-    selected: true,
-  },
-  {
-    id: "text-1",
-    type: "text",
-    label: "Location text",
-    risk: "high",
-    x: 10,
-    y: 68,
-    width: 35,
-    height: 10,
-    selected: true,
-  },
-  {
-    id: "plate-1",
-    type: "license_plate",
-    label: "License plate",
-    risk: "high",
-    x: 62,
-    y: 70,
-    width: 18,
-    height: 8,
-    selected: true,
-  },
-];
+
 
 import { useMidnight } from "@/hooks/useMidnight";
 
-export default function TrueMaskApp() {
+/**
+ * The pipeline works in pixels; the UI positions overlays in percentages.
+ * These two helpers are the only place the two coordinate systems meet.
+ */
+function toUiDetection(item: PixelDetection, index: number, image: ImageData): Detection {
+  const type: Detection["type"] = item.kind === "face" ? "face" : "text";
+  return {
+    id: `${item.kind}-${index}`,
+    type,
+    label: item.kind === "face" ? "Face" : item.text ? `Text: ${item.text}` : "Text",
+    risk: item.kind === "face" ? "critical" : "high",
+    x: (item.box.x / image.width) * 100,
+    y: (item.box.y / image.height) * 100,
+    width: (item.box.width / image.width) * 100,
+    height: (item.box.height / image.height) * 100,
+    selected: true,
+  };
+}
+
+const toHexString = (bytes: Uint8Array): string =>
+  [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+
+function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
+  return {
+    kind: item.type === "face" ? "face" : "text",
+    confidence: 1,
+    box: {
+      x: (item.x / 100) * image.width,
+      y: (item.y / 100) * image.height,
+      width: (item.width / 100) * image.width,
+      height: (item.height / 100) * image.height,
+    },
+  };
+}
+
+  export default function TrueMaskApp() {
   const inputRef = useRef<HTMLInputElement>(null);
   
-  const { address, isConnecting, connect, provider } = useMidnight();
+  const { address, isConnecting, connect, isWalletAvailable, getApi } = useMidnight();
 
   const [step, setStep] = useState<AppStep>("upload");
   const [file, setFile] = useState<File | null>(null);
@@ -99,6 +99,9 @@ export default function TrueMaskApp() {
   const [originalHash, setOriginalHash] = useState("");
   const [protectedHash, setProtectedHash] = useState("");
   const [isDragging, setIsDragging] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  /** The decoded original pixels. Held so the protect step hashes what was scanned. */
+  const sourcePixels = useRef<ImageData | null>(null);
 
   const currentStepIndex = STEPS.findIndex((item) => item.id === step);
 
@@ -124,37 +127,22 @@ export default function TrueMaskApp() {
       const hash = await hashFile(selectedFile);
       setOriginalHash(hash);
 
-      const detector = await initFaceDetector();
-      const img = new window.Image();
-      img.src = url;
-      await new Promise((resolve) => { img.onload = resolve; });
-      
-      const detectionsResult = detector.detect(img);
-      const newDetections: Detection[] = detectionsResult.detections.map((d, index) => {
-        const bbox = d.boundingBox;
-        if (!bbox) return null;
-        return {
-          id: `face-${index}`,
-          type: "face",
-          label: "Face",
-          risk: "critical",
-          x: (bbox.originX / img.width) * 100,
-          y: (bbox.originY / img.height) * 100,
-          width: (bbox.width / img.width) * 100,
-          height: (bbox.height / img.height) * 100,
-          selected: true
-        };
-      }).filter((item): item is Detection => item !== null);
+      const image = await loadRgbaImage(url);
+      sourcePixels.current = image;
 
-      if (newDetections.length > 0) {
-        setDetections(newDetections);
-      } else {
-        setDetections(MOCK_DETECTIONS);
-      }
+      // Faces via MediaPipe, signs/plates/documents via OCR — both from the
+      // shared pipeline, so these are the same boxes the redaction will use.
+      const found: PixelDetection[] = [
+        ...(await vision.detectFaces(image)),
+        ...(await vision.detectText(image)),
+      ];
+
+      setDetections(found.map((item, index) => toUiDetection(item, index, image)));
       setStep("review");
-    } catch {
-      setOriginalHash("Unable to generate hash");
-      setDetections(MOCK_DETECTIONS);
+    } catch (err) {
+      console.error("Scan failed:", err);
+      setStatus(err instanceof Error ? err.message : "Scan failed.");
+      setDetections([]);
       setStep("review");
     }
   }
@@ -173,84 +161,54 @@ export default function TrueMaskApp() {
   }
 
   async function protectImage() {
-    if (!file || !imageUrl) return;
+    const image = sourcePixels.current;
+    if (!file || !imageUrl || !image) return;
 
     setStep("redact");
+    setStatus(null);
 
     try {
-      const img = new window.Image();
-      img.src = imageUrl;
-      await new Promise((resolve) => { img.onload = resolve; });
-
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      ctx.drawImage(img, 0, 0);
-
-      selectedDetections.forEach((item) => {
-        const x = (item.x / 100) * img.width;
-        const y = (item.y / 100) * img.height;
-        const w = (item.width / 100) * img.width;
-        const h = (item.height / 100) * img.height;
-        
-        ctx.filter = "blur(20px)";
-        ctx.drawImage(canvas, Math.max(0, x), Math.max(0, y), w, h, Math.max(0, x), Math.max(0, y), w, h);
-        ctx.filter = "none";
+      // One call does the whole thing: grid, block mapping, block hashes, the
+      // preserved root, the bitmap commitment and the blacked-out pixels.
+      // Blackout, not blur: blur and pixelation are reversible enough to attack,
+      // and this exists to protect sources.
+      const redaction = await vision.redactImage(image, {
+        manualDetections: selectedDetections.map((item) => toPixelDetection(item, image)),
+        style: "blackout",
       });
 
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg"));
-      if (blob) {
-        const redactedFile = new File([blob], "redacted.jpg", { type: "image/jpeg" });
-        const redactedHashValue = await hashFile(redactedFile);
-        setProtectedHash(redactedHashValue);
-        
-        if (provider) {
-          try {
-            console.log("Building Midnight transaction for verify_image...");
-            
-            /* 
-             * ACTUAL MIDNIGHT SUBMISSION ARCHITECTURE
-             * 
-             * NOTE: To make this run, the ImageVerification.compact contract MUST be compiled
-             * using the Midnight compiler to generate the TypeScript bindings, and deployed.
-             * 
-             * import { callContract } from "@midnight-ntwrk/midnight-js-contracts";
-             * import { ImageVerificationContract } from "../../contracts/managed/image_verification";
-             * 
-             * // 1. Map our local state to the witness callbacks
-             * const createWitnesses = (originalHashStr: string, boxes: Detection[]) => ({
-             *   get_original_image_hash: () => new TextEncoder().encode(originalHashStr),
-             *   get_redaction_boxes: () => boxes.map(b => ({
-             *     x: BigInt(Math.floor(b.x)),
-             *     y: BigInt(Math.floor(b.y)),
-             *     width: BigInt(Math.floor(b.width)),
-             *     height: BigInt(Math.floor(b.height))
-             *   }))
-             * });
-             * 
-             * // 2. Call the circuit
-             * const result = await callContract({
-             *   contractAddress: "YOUR_DEPLOYED_CONTRACT_ADDRESS",
-             *   circuitName: "verify_image",
-             *   args: [new TextEncoder().encode(redactedHashValue)], // Public input
-             *   privateState: createWitnesses(originalHash, selectedDetections),
-             *   providers: provider
-             * });
-             * console.log("Transaction success!", result);
-             */
-          } catch (err) {
-            console.error("Contract call failed:", err);
-          }
-        } else {
-          console.warn("Wallet not connected. Skipping Midnight submission.");
+      // PNG, never JPEG. JPEG re-quantises every block, which changes bytes
+      // outside the redacted regions and breaks the proof for everyone.
+      const pngBlob = await rgbaToPngBlob(redaction.redactedImage);
+      const pngBytes = await pngBlob.arrayBuffer();
+      const redactedHash = await sha256Bytes(pngBytes);
+      setProtectedHash(toHexString(redactedHash));
+
+      if (!isWalletAvailable) {
+        setStatus(
+          "Redaction complete and verifiable offline. Connect a Midnight Lace wallet to publish the record on-chain.",
+        );
+      } else {
+        try {
+          setStatus("Proving redaction on Midnight...");
+          const api = await getApi();
+          await api.submitRedaction(redactedHash, redaction);
+          setStatus("Redaction proven and recorded on Midnight.");
+        } catch (err) {
+          console.error("Midnight submission failed:", err);
+          setStatus(
+            `Redaction is complete, but publishing it on-chain failed: ${
+              err instanceof Error ? err.message : "unknown error"
+            }`,
+          );
         }
       }
+
       setStep("verified");
-    } catch {
+    } catch (err) {
+      console.error("Protection failed:", err);
       setProtectedHash("Unable to generate hash");
+      setStatus(err instanceof Error ? err.message : "Protection failed.");
     }
 
     window.setTimeout(() => {
