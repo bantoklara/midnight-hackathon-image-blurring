@@ -13,8 +13,9 @@
     "build": "cd contract && npm run build && cd ../api && npm run build",
     "dev": "npm run dev --workspace truemask/apps/web",
     "test": "npm run test --workspace contract && npm run test --workspace api",
-    "e2e": "node scripts/e2e-truemask.mjs",
-    "proof-server": "docker compose -f proof-server/docker-compose.yml up -d"
+    "e2e": "node testing/e2e-truemask.mjs",
+    "proof-server": "docker compose -f proof-server/docker-compose.yml up -d",
+    "test:all": "npm test && npm run e2e"
   },
   "devDependencies": {
     "shx": "^0.4.0",

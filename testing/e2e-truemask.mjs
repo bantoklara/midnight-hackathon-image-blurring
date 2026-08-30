@@ -1,7 +1,7 @@
 /**
  * TrueMask end-to-end trace — no browser, no wallet, no devnet.
  *
- *   node scripts/e2e-truemask.mjs
+ *   node testing/e2e-truemask.mjs
  *
  * Walks the entire chain on a synthesised photo and asserts each link:
  *
