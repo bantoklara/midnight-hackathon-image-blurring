@@ -16,7 +16,14 @@
 
 import type { BlockGrid, BoundingBox, Detection, RgbaImage } from './types.js';
 
-/** Protocol constant. Changing this invalidates all existing on-chain records. */
+/**
+ * PROTOCOL-CRITICAL. The grid size the whole scheme is defined against.
+ *
+ * Prover and verifier must split identically or the roots never match. Changing
+ * this value invalidates every record already published — old images can no
+ * longer be verified by this build, and it fails silently rather than loudly.
+ * Must stay equal to DEFAULT_BLOCK_SIZE in contract/src/truemask-constants.ts.
+ */
 export const DEFAULT_BLOCK_SIZE = 16;
 
 /** Compute the grid for the given image dimensions. */
@@ -117,8 +124,11 @@ export function blocksForDetections(
 
 /**
  * Pack block indices into a bitmap: bit i set means block i may change.
- * Bit order is LSB-first within each byte — block i lives at
- * `bitmap[i >> 3] & (1 << (i & 7))`. A verifier MUST use the same order.
+ *
+ * PROTOCOL-CRITICAL: bit order is LSB-first within each byte — block i lives at
+ * `bitmap[i >> 3] & (1 << (i & 7))`. The bitmap is published beside the image and
+ * committed to on-chain, so flipping this order changes the commitment for every
+ * image and breaks every existing record. A verifier MUST use the same order.
  */
 export function packAuthorizationBitmap(
   grid: BlockGrid,

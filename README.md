@@ -240,28 +240,31 @@ npm run dev          # http://localhost:3000
 (`keys/<circuit>.prover`, `zkir/<circuit>.bzkir`) is exactly what `FetchZkConfigProvider` expects.
 That copy is gitignored; `contract/managed/` remains the source of truth.
 
-### 7. On-chain submission (not yet exercised)
+### 7. Publishing to Midnight (Preprod)
 
-Generating and submitting a real transaction additionally needs:
+Redaction and verification work with no wallet and no network. Publishing a record
+is the one blockchain **write**, so it needs a wallet and a small amount of tDUST.
 
-- the **Midnight Lace** browser extension,
-- a **node** on `:9944` and an **indexer** on `:8088`.
+1. Install **Midnight Lace** and switch it to **Preprod**.
+2. Request **tNIGHT** for your **unshielded** address at
+   <https://faucet.preprod.midnight.network/>. The faucet does not hand out tDUST
+   directly.
+3. **Delegate** that tNIGHT in the wallet to start generating **tDUST**, and give
+   it a minute or two to accrue. tDUST is what actually pays the fee.
+4. Start the proof server (`npm run proof-server`) — proving stays on your machine
+   even on a public network, which is what keeps the original image local.
+5. `npm run dev`, protect an image, then press **Publish to Midnight** on the
+   record screen.
+6. The first publish **deploys** the contract and shows its address. Copy it into
+   `NEXT_PUBLIC_CONTRACT_ADDRESS` in `truemask/apps/web/.env.local` so later runs
+   join that contract instead of deploying a new one — and so the Verify flow
+   starts confirming records against the chain.
 
-Neither is running in this repo yet. Point the app at them with:
+See `truemask/apps/web/.env.example` for every setting.
 
-```bash
-# truemask/apps/web/.env.local
-NEXT_PUBLIC_NETWORK_ID=undeployed
-NEXT_PUBLIC_INDEXER_URI=http://127.0.0.1:8088/api/v1/graphql
-NEXT_PUBLIC_INDEXER_WS_URI=ws://127.0.0.1:8088/api/v1/graphql/ws
-NEXT_PUBLIC_PROOF_SERVER_URI=http://localhost:6300
-NEXT_PUBLIC_CONTRACT_ADDRESS=            # leave empty to deploy a fresh registry
-```
-
-Without a wallet the app still runs the full local pipeline and shows the hashes — it just holds the
-record locally instead of publishing it.
-
----
+**Verifying never needs any of this.** It is a read: no wallet, no signing, no
+cost, no setup. With a contract address configured it also confirms the record
+against Midnight; without one it verifies offline and says so.
 
 ## Known gaps
 

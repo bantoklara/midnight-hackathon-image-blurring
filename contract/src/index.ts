@@ -1,3 +1,14 @@
+/**
+ * Compiled-contract entry point for the workspace.
+ *
+ * Wraps each compiled Compact contract together with its witness implementations
+ * and its on-disk ZK assets, producing the `CompiledContract` value that
+ * `deployContract`/`findDeployedContract` require.
+ *
+ * `managed/` is committed, so a fresh clone can build and run without installing
+ * the Compact toolchain.
+ */
+
 import { CompiledContract } from '@midnight-ntwrk/compact-js';
 
 export * as Leaderboard from '../managed/leaderboard/contract/index.js';
@@ -27,6 +38,12 @@ export const CompiledLeaderboardContract = CompiledContract.make(
   CompiledContract.withCompiledFileAssets('./managed/leaderboard'),
 );
 
+/**
+ * The TrueMask redaction-integrity contract.
+ *
+ * `withCompiledFileAssets` points at `./managed/truemask`, which holds the prover
+ * and verifier keys for `submit_redaction` and `verify_integrity`.
+ */
 export const CompiledTrueMaskContract = CompiledContract.make(
   'truemask',
   TrueMaskContract.Contract,
@@ -36,10 +53,16 @@ export const CompiledTrueMaskContract = CompiledContract.make(
 );
 
 /**
+ * PROTOCOL-CRITICAL. The canonical definition of the preserved root.
+ *
  * `compute_preserved_root` is a pure circuit, so the compiler exposes it directly
- * to TypeScript — no context, no proof, no wallet. This is the canonical
- * definition of the root; `api/src/vision/hashing.ts` mirrors it with WebCrypto
- * and is pinned to it by api/src/test/integration.test.ts.
+ * to TypeScript — no context, no proof, no wallet. `api/src/vision/hashing.ts`
+ * mirrors it with WebCrypto for speed and is pinned to this value by the
+ * "hash agreement" test in `api/src/test/integration.test.ts`.
+ *
+ * If these two ever diverge, every proof silently stops verifying while the code
+ * still appears to work. That test is the only thing standing between a compiler
+ * change and that failure mode.
  */
 export const { compute_preserved_root: computePreservedRootOnChainDefinition } =
   TrueMaskContract.pureCircuits;
