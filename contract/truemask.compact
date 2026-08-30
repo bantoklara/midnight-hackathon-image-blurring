@@ -1,0 +1,135 @@
+/**
+ * TrueMask — provable redaction integrity for journalism.
+ *
+ * THE CLAIM THIS CONTRACT RECORDS
+ *   "Every block of the published image that was NOT authorized for redaction is
+ *    pixel-identical to the same block of the original."
+ *
+ * HOW
+ *   The image is cut into a fixed grid (block_size, cols x rows). Every block a
+ *   detection overlaps is "authorized" to change; the rest are "preserved".
+ *   Each preserved block is hashed with its index and the grid dimensions bound
+ *   in, those leaves are folded into LANE_COUNT lane digests off-circuit, and the
+ *   lanes are hashed here into a single `preserved_root`. Only the root, a
+ *   commitment to the authorization bitmap, and the grid dimensions go on-chain.
+ *   The original image never leaves the journalist's machine.
+ *
+ * WHY LANES INSTEAD OF ONE HASH PER BLOCK
+ *   Compact unrolls every loop, and `persistentHash` is SHA-256 (expensive in
+ *   circuit). A 1920x1080 photo has 8160 blocks — hashing each in-circuit is not
+ *   viable. The vision pipeline reduces all preserved leaves to a fixed
+ *   Vector<16, Bytes<32>>, so the circuit cost is constant regardless of image size.
+ *
+ * PROVER/VERIFIER AGREEMENT
+ *   `compute_preserved_root` is a pure circuit, so the compiler also emits it as
+ *   `pureCircuits.compute_preserved_root(lanes)` for TypeScript. The vision
+ *   pipeline calls THAT rather than reimplementing the hash, which makes a
+ *   prover/verifier hash mismatch impossible by construction.
+ *   See api/src/vision/README.md.
+ *
+ * WHAT THIS DOES *NOT* PROVE
+ *   Both roots are supplied by the prover, so this establishes tamper-evidence
+ *   and binds the image to a declared redaction policy — it does not force the
+ *   journalist to have been honest about which original they started from. That
+ *   is inherent to committing to an image only the prover holds.
+ */
+
+pragma language_version >= 0.19;
+
+import CompactStandardLibrary;
+
+/**
+ * The public, on-chain record for one published image.
+ *
+ * `authorization_commitment` is a hash of the redaction bitmap, not the bitmap
+ * itself: a Bytes<32> holds only 256 bits, i.e. a 256x256 image at block_size 16.
+ * The full bitmap is published alongside the image so any verifier can rebuild
+ * the grid and re-derive this commitment.
+ */
+export struct RedactionRecord {
+  preserved_root: Bytes<32>,
+  authorization_commitment: Bytes<32>,
+  cols: Uint<32>,
+  rows: Uint<32>,
+  block_size: Uint<32>,
+  verified: Boolean
+}
+
+/** Published-image hash -> its redaction record. Anyone can query this. */
+export ledger records: Map<Bytes<32>, RedactionRecord>;
+
+/**
+ * Lane digests over the preserved blocks of the PUBLISHED image.
+ * Computed locally by the vision pipeline; never revealed except via the root.
+ */
+witness get_published_lane_digests(): Vector<16, Bytes<32>>;
+
+/**
+ * Lane digests over the same preserved blocks of the ORIGINAL image.
+ * This is the half that stays private — it is only ever compared, never stored.
+ */
+witness get_original_lane_digests(): Vector<16, Bytes<32>>;
+
+/**
+ * Fold the lane digests into the single root that goes on-chain.
+ *
+ * Pure, so it is exported to TypeScript as `pureCircuits.compute_preserved_root`
+ * and is the ONE definition of the root shared by prover and verifier.
+ */
+export circuit compute_preserved_root(lanes: Vector<16, Bytes<32>>): Bytes<32> {
+  return persistentHash<Vector<16, Bytes<32>>>(lanes);
+}
+
+/**
+ * Register a redacted image.
+ *
+ * Asserts that the preserved blocks of the published image hash to the same root
+ * as the preserved blocks of the original — i.e. the journalist changed nothing
+ * outside the regions they declared.
+ */
+export circuit submit_redaction(
+  redacted_hash: Bytes<32>,
+  authorization_commitment: Bytes<32>,
+  cols: Uint<32>,
+  rows: Uint<32>,
+  block_size: Uint<32>
+): [] {
+  assert(!records.member(disclose(redacted_hash)), "image already registered");
+
+  const published_root = compute_preserved_root(get_published_lane_digests());
+  const original_root = compute_preserved_root(get_original_lane_digests());
+  assert(published_root == original_root, "redaction altered a region outside the authorized blocks");
+
+  records.insert(disclose(redacted_hash), RedactionRecord {
+    preserved_root: disclose(published_root),
+    authorization_commitment: disclose(authorization_commitment),
+    cols: disclose(cols),
+    rows: disclose(rows),
+    block_size: disclose(block_size),
+    verified: false
+  });
+}
+
+/**
+ * Re-check a registered image against the copy the verifier holds.
+ *
+ * The verifier splits the image they received with the published bitmap, folds
+ * the preserved blocks into lanes, and calls this. If a single byte of any
+ * non-redacted block changed since submission, the roots diverge and this fails.
+ */
+export circuit verify_integrity(redacted_hash: Bytes<32>): [] {
+  assert(records.member(disclose(redacted_hash)), "image not registered");
+  const record = records.lookup(disclose(redacted_hash));
+
+  const current_root = compute_preserved_root(get_published_lane_digests());
+  assert(current_root == record.preserved_root, "integrity check failed: a non-redacted region was altered");
+
+  records.insert(disclose(redacted_hash), RedactionRecord {
+    preserved_root: record.preserved_root,
+    authorization_commitment: record.authorization_commitment,
+    cols: record.cols,
+    rows: record.rows,
+    block_size: record.block_size,
+    verified: true
+  });
+}

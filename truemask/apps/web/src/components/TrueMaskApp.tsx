@@ -18,7 +18,23 @@ import {
 
 import type { AppStep, Detection } from "@/types";
 
-import { hashFile, shortHash } from "@/lib/image-utils";
+import {
+  hashFile,
+  loadRgbaImage,
+  rgbaToPngBlob,
+  sha256Bytes,
+  shortHash,
+} from "@/lib/image-utils";
+import { vision } from "truemask-api";
+
+/**
+ * Detection, block-splitting, hashing and redaction all live in the shared
+ * pipeline (`api/src/vision`), not in this component. That matters: the regions
+ * the journalist sees here and the blocks the circuit hashes have to come from
+ * one implementation, or the UI can show one thing while the proof commits to
+ * another.
+ */
+type PixelDetection = vision.Detection;
 
 const STEPS: {
   id: AppStep;
@@ -32,44 +48,49 @@ const STEPS: {
   { id: "verified", label: "Verify" },
 ];
 
-const MOCK_DETECTIONS: Detection[] = [
-  {
-    id: "face-1",
-    type: "face",
-    label: "Face",
-    risk: "critical",
-    x: 38,
-    y: 18,
-    width: 22,
-    height: 30,
-    selected: true,
-  },
-  {
-    id: "text-1",
-    type: "text",
-    label: "Location text",
-    risk: "high",
-    x: 10,
-    y: 68,
-    width: 35,
-    height: 10,
-    selected: true,
-  },
-  {
-    id: "plate-1",
-    type: "license_plate",
-    label: "License plate",
-    risk: "high",
-    x: 62,
-    y: 70,
-    width: 18,
-    height: 8,
-    selected: true,
-  },
-];
 
-export default function TrueMaskApp() {
+
+import { useMidnight } from "@/hooks/useMidnight";
+
+/**
+ * The pipeline works in pixels; the UI positions overlays in percentages.
+ * These two helpers are the only place the two coordinate systems meet.
+ */
+function toUiDetection(item: PixelDetection, index: number, image: ImageData): Detection {
+  const type: Detection["type"] = item.kind === "face" ? "face" : "text";
+  return {
+    id: `${item.kind}-${index}`,
+    type,
+    label: item.kind === "face" ? "Face" : item.text ? `Text: ${item.text}` : "Text",
+    risk: item.kind === "face" ? "critical" : "high",
+    x: (item.box.x / image.width) * 100,
+    y: (item.box.y / image.height) * 100,
+    width: (item.box.width / image.width) * 100,
+    height: (item.box.height / image.height) * 100,
+    selected: true,
+  };
+}
+
+const toHexString = (bytes: Uint8Array): string =>
+  [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+
+function toPixelDetection(item: Detection, image: ImageData): PixelDetection {
+  return {
+    kind: item.type === "face" ? "face" : "text",
+    confidence: 1,
+    box: {
+      x: (item.x / 100) * image.width,
+      y: (item.y / 100) * image.height,
+      width: (item.width / 100) * image.width,
+      height: (item.height / 100) * image.height,
+    },
+  };
+}
+
+  export default function TrueMaskApp() {
   const inputRef = useRef<HTMLInputElement>(null);
+  
+  const { address, isConnecting, connect, isWalletAvailable, getApi } = useMidnight();
 
   const [step, setStep] = useState<AppStep>("upload");
   const [file, setFile] = useState<File | null>(null);
@@ -78,6 +99,9 @@ export default function TrueMaskApp() {
   const [originalHash, setOriginalHash] = useState("");
   const [protectedHash, setProtectedHash] = useState("");
   const [isDragging, setIsDragging] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  /** The decoded original pixels. Held so the protect step hashes what was scanned. */
+  const sourcePixels = useRef<ImageData | null>(null);
 
   const currentStepIndex = STEPS.findIndex((item) => item.id === step);
 
@@ -102,14 +126,25 @@ export default function TrueMaskApp() {
     try {
       const hash = await hashFile(selectedFile);
       setOriginalHash(hash);
-    } catch {
-      setOriginalHash("Unable to generate hash");
-    }
 
-    window.setTimeout(() => {
-      setDetections(MOCK_DETECTIONS);
+      const image = await loadRgbaImage(url);
+      sourcePixels.current = image;
+
+      // Faces via MediaPipe, signs/plates/documents via OCR — both from the
+      // shared pipeline, so these are the same boxes the redaction will use.
+      const found: PixelDetection[] = [
+        ...(await vision.detectFaces(image)),
+        ...(await vision.detectText(image)),
+      ];
+
+      setDetections(found.map((item, index) => toUiDetection(item, index, image)));
       setStep("review");
-    }, 1800);
+    } catch (err) {
+      console.error("Scan failed:", err);
+      setStatus(err instanceof Error ? err.message : "Scan failed.");
+      setDetections([]);
+      setStep("review");
+    }
   }
 
   function toggleDetection(id: string) {
@@ -126,39 +161,54 @@ export default function TrueMaskApp() {
   }
 
   async function protectImage() {
-    if (!file) return;
+    const image = sourcePixels.current;
+    if (!file || !imageUrl || !image) return;
 
     setStep("redact");
-
-    const metadata = JSON.stringify({
-      originalHash,
-      approvedRegions: selectedDetections.map((item) => ({
-        id: item.id,
-        type: item.type,
-        x: item.x,
-        y: item.y,
-        width: item.width,
-        height: item.height,
-      })),
-    });
-
-    const encoder = new TextEncoder();
-
-    const combined = new Uint8Array([
-      ...new Uint8Array(await file.arrayBuffer()),
-      ...encoder.encode(metadata),
-    ]);
+    setStatus(null);
 
     try {
-      const hash = await crypto.subtle.digest("SHA-256", combined);
+      // One call does the whole thing: grid, block mapping, block hashes, the
+      // preserved root, the bitmap commitment and the blacked-out pixels.
+      // Blackout, not blur: blur and pixelation are reversible enough to attack,
+      // and this exists to protect sources.
+      const redaction = await vision.redactImage(image, {
+        manualDetections: selectedDetections.map((item) => toPixelDetection(item, image)),
+        style: "blackout",
+      });
 
-      const protectedImageHash = Array.from(new Uint8Array(hash))
-        .map((byte) => byte.toString(16).padStart(2, "0"))
-        .join("");
+      // PNG, never JPEG. JPEG re-quantises every block, which changes bytes
+      // outside the redacted regions and breaks the proof for everyone.
+      const pngBlob = await rgbaToPngBlob(redaction.redactedImage);
+      const pngBytes = await pngBlob.arrayBuffer();
+      const redactedHash = await sha256Bytes(pngBytes);
+      setProtectedHash(toHexString(redactedHash));
 
-      setProtectedHash(protectedImageHash);
-    } catch {
+      if (!isWalletAvailable) {
+        setStatus(
+          "Redaction complete and verifiable offline. Connect a Midnight Lace wallet to publish the record on-chain.",
+        );
+      } else {
+        try {
+          setStatus("Proving redaction on Midnight...");
+          const api = await getApi();
+          await api.submitRedaction(redactedHash, redaction);
+          setStatus("Redaction proven and recorded on Midnight.");
+        } catch (err) {
+          console.error("Midnight submission failed:", err);
+          setStatus(
+            `Redaction is complete, but publishing it on-chain failed: ${
+              err instanceof Error ? err.message : "unknown error"
+            }`,
+          );
+        }
+      }
+
+      setStep("verified");
+    } catch (err) {
+      console.error("Protection failed:", err);
       setProtectedHash("Unable to generate hash");
+      setStatus(err instanceof Error ? err.message : "Protection failed.");
     }
 
     window.setTimeout(() => {
@@ -193,14 +243,29 @@ export default function TrueMaskApp() {
           </div>
         </button>
 
-        {step !== "upload" && (
-          <button
-            onClick={resetApp}
-            className="rounded-lg border border-white/10 px-4 py-2 text-sm text-white/70 transition hover:bg-white/5"
-          >
-            New image
-          </button>
-        )}
+        <div className="flex items-center gap-4">
+          {address ? (
+            <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-2 text-sm text-green-400">
+              Connected: {address.slice(0, 8)}...
+            </div>
+          ) : (
+            <button
+              onClick={connect}
+              disabled={isConnecting}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-50"
+            >
+              {isConnecting ? "Connecting..." : "Connect Lace Wallet"}
+            </button>
+          )}
+          {step !== "upload" && (
+            <button
+              onClick={resetApp}
+              className="rounded-lg border border-white/10 px-4 py-2 text-sm text-white/70 transition hover:bg-white/5"
+            >
+              New image
+            </button>
+          )}
+        </div>
       </header>
 
       <section className="mx-auto mt-10 max-w-4xl">
