@@ -5,7 +5,7 @@
 
 import { type MidnightProviders } from '@midnight-ntwrk/midnight-js-types';
 import { type FoundContract } from '@midnight-ntwrk/midnight-js-contracts';
-import { type TrueMaskPrivateState } from 'leaderboard-contract';
+import { type TrueMaskPrivateState } from 'truemask-contract';
 
 export const trueMaskPrivateStateKey = 'trueMaskPrivateState';
 export type TrueMaskPrivateStateId = typeof trueMaskPrivateStateKey;
